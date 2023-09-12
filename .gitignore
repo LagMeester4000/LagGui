@@ -30,3 +30,17 @@
 *.exe
 *.out
 *.app
+
+# Folders
+.vs
+.cache
+bin
+obj
+
+# Project files
+*.sln
+*.vcxproj*
+
+# Tools
+compile_commands.json
+clangTrace.txt
