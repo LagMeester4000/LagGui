@@ -44,3 +44,6 @@ obj
 # Tools
 compile_commands.json
 clangTrace.txt
+
+# Precompiled libs
+!lib/raylib/lib/*
