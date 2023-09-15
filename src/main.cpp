@@ -26,19 +26,24 @@ int main()
 
 			rlDisableBackfaceCulling();
 
-			lgui::begin_frame();
+			lgui::begin_frame(context);
 
 			if (lgui::begin_panel(context, "My Window", lgui::Rect::from_pos_size(lgui::v2{100, 100}, lgui::v2{300, 300}), 0))
 			{
-				if (lgui::button(context, "hehehehehe"))
+				if (lgui::button(context, "Button1").clicked)
 				{
-					printf("Pressed!\n");
+					printf("Button 1 pressed!\n");
+				}
+
+				if (lgui::button(context, "Button2").clicked)
+				{
+					printf("Button 2 pressed!\n");
 				}
 
 				lgui::end_panel(context);
 			}
 
-			lgui::end_frame();
+			lgui::end_frame(context);
 
 		EndDrawing();
 	}

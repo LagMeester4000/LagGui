@@ -3,6 +3,11 @@
 #include "crc32.hpp"
 #include <string.h>
 
+#include "raylib.h"
+#include "rlgl.h"
+#include "stb_truetype.h"
+#include <stdio.h>
+
 namespace lgui {
 
 Context* create_context()
@@ -13,15 +18,67 @@ Context* create_context()
 	Context* ret = arena.allocate_one<Context>();
 	ret->arena = arena;
 
+	ret->draw_buffer.allocate(ret);
+	ret->current_frame = 1;
+
+	// TEMP: load font
+	{
+		static byte temp_buffer[LGUI_MB(2)];
+		FILE* f = fopen("Montserrat-Regular.ttf", "rb");
+		fread(temp_buffer, 1, LGUI_MB(2), f);
+		fclose(f);
+
+		static byte temp_pixels[512 * 512 * 4];
+		ret->temp_font_height = 15.f;
+		stbtt_BakeFontBitmap(
+			temp_buffer,
+			0,
+			ret->temp_font_height,
+			temp_pixels,
+			512,
+			512,
+			32,
+			96,
+			ret->temp_font_cdata
+		);
+
+		ret->temp_font_texture = rlLoadTexture(temp_pixels, 512, 512, RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8A8, 1);
+	}
+
 	return ret;
 }
 
-void begin_frame()
+void begin_frame(Context* context)
 {
+	// Find overlap panel
+	{
+		v2 mouse = v2::from(GetMousePosition());
 
+		context->overlap_panel = nullptr;
+		for (Panel* panel = context->first_depth_panel; panel; panel = panel->order_next)
+		{
+			if (panel->rect.overlap(mouse))
+			{
+				context->overlap_panel = panel;
+			}
+		}
+	}
+
+	// Input
+	{
+		context->hover_id = 0;
+
+		if (context->overlap_id)
+		{
+			context->hover_id = context->overlap_id;
+			context->overlap_id = 0;
+		}
+	}
+
+	++context->current_frame;
 }
 
-void end_frame()
+void end_frame(Context* context)
 {
 
 }
@@ -143,16 +200,85 @@ v2 layout_next(Context* context)
 	return ret;
 }
 
-bool button(Context* context, const char* name)
+InputResult handle_element_input(Context* context, Rect rect, ID id)
+{
+	// TODO: Replace raylib calls with custom solutions
+	InputResult ret{};
+
+	v2 mouse = v2::from(GetMousePosition());
+
+	if (context->overlap_panel == get_current_panel(context) &&
+		rect.overlap(mouse))
+	{
+		context->overlap_id = id;
+	}
+
+	if (context->hover_id == id)
+	{
+		ret.hover = true;
+
+		if (IsMouseButtonPressed(0))
+		{
+			ret.pressed = true;
+		}
+		if (IsMouseButtonReleased(0))
+		{
+			ret.released = true;
+
+			// TODO: Add proper clicked mechanism
+			ret.clicked = true;
+		}
+	}
+
+	return ret;
+}
+
+InputResult button(Context* context, const char* name)
 {
 	v2 pos = layout_next(context);
-	draw_rectangle(pos, v2{50, 30}, Color{0, 1, 0, 1});
-	return false;
+	v2 size = v2{50, 30};
+	Color color = Color{0, 1, 0, 1};
+	ID id = get_id(context, name);
+
+	InputResult input = handle_element_input(context, Rect::from_pos_size(pos, size), id);
+	if (input.pressed)
+	{
+		color.b = 1;
+	}
+	else if (input.released)
+	{
+		color.r = 1;
+		color.b = 1;
+	}
+	else if (input.hover)
+	{
+		color.r = 1;
+	}
+
+	draw_rectangle(pos, size, color);
+	return input;
 }
 
 void text(Context* context, const char* text)
 {
 
+}
+
+void DrawBuffer::allocate(Context* context)
+{
+	// TODO: Replace with growing solution? Especially for index buffer
+
+	const usize vertex_size = sizeof(f32) * 2 + sizeof(f32) * 2 + sizeof(u32);
+	const usize index_size = sizeof(u16);
+	const usize short_max = 1 << 16;
+	vertex_buffer_length = vertex_size * short_max;
+	index_buffer_length = index_size * short_max;
+
+	vertex_buffer_top = 0;
+	index_buffer_top = 0;
+
+	vertex_buffer = (f32*)context->arena.allocate(vertex_buffer_length);
+	index_buffer = (u16*)context->arena.allocate(vertex_buffer_length);
 }
 
 }

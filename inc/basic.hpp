@@ -44,7 +44,24 @@ struct v2 {
 	v2& operator/=(v2 other) { x /= other.x; y /= other.y; return *this; }
 	v2 operator/(f32 other) const { return {x / other, y / other}; }
 	v2& operator/=(f32 other) { x /= other; y /= other; return *this; }
+
+	// Used to convert unknown vector types into this one
+	template<typename T>
+	static v2 from(T other)
+	{
+		return {other.x, other.y};
+	}
 };
+
+inline v2 v2_min(v2 a, v2 b)
+{
+	return {LGUI_MIN(a.x, b.x), LGUI_MIN(a.y, b.y)};
+}
+
+inline v2 v2_max(v2 a, v2 b)
+{
+	return {LGUI_MAX(a.x, b.x), LGUI_MAX(a.y, b.y)};
+}
 
 template<typename T>
 struct Slice {
