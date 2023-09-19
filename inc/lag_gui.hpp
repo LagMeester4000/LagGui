@@ -4,6 +4,7 @@
 
 // TEMP
 #include "stb_truetype.h"
+#include "raylib.h"
 
 namespace lgui {
 
@@ -39,6 +40,11 @@ struct Rect {
 	bool overlap(const Rect& other) const
 	{
 		return clip(other).area() > 0.f;
+	}
+
+	Rect pad(f32 amount) const
+	{
+		return {top_left + v2{amount, amount}, bottom_right - v2{amount, amount}};
 	}
 };
 
@@ -91,9 +97,77 @@ struct DrawBuffer {
 	void allocate(Context* context);
 };
 
+using Codepoint = i32;
+
+struct Glyph {
+	//Codepoint codepoint;
+	v2 pos;
+	v2 size;
+	v2 uv1;
+	v2 uv2;
+};
+
+struct Font {
+	Font* next;
+
+	const char* name;
+	u32 name_hash;
+	f32 height;
+	//stbtt_fontinfo font_info;
+
+	Slice<Glyph> glyphs;
+
+	const Glyph& get_glyph(Codepoint codepoint) const;
+	f32 text_width(const char* text, f32 spacing) const;
+};
+
+struct Icon {
+	Icon* next;
+
+	u32 name_hash;
+	u32 width;
+	u32 height;
+	byte* pixels; // Set to nullptr once used
+	v2 uv1;
+	v2 uv2;
+};
+
+struct Atlas {
+	TextureID texture_id;
+	Texture2D texture_obj;
+	u32 width;
+	u32 height;
+
+	Font* first_font;
+	Font* last_font;
+
+	Icon* first_icon;
+	Icon* last_icon;
+	u32 icon_count;
+
+	bool is_built() const
+	{
+		return width != 0 && height != 0;
+	}
+
+	Font* add_font(Context* context, const char* filename, f32 pixel_height);
+	Icon* add_icon(Context* context, const char* name, byte* pixels_rgba, u32 width, u32 height);
+	bool build(Context* context);
+};
+
+struct Style {
+	Font* font;
+};
+
 struct Panel;
 
 const usize MAX_CLIP_RECT = 16;
+
+enum TriangleStripMode {
+	TriangleStripMode_None,
+	TriangleStripMode_Strip,
+	TriangleStripMode_Convex,
+};
 
 struct Painter {
 	Panel* panel;
@@ -104,26 +178,42 @@ struct Painter {
 	Rect clip_rect_stack[MAX_CLIP_RECT];
 	u32 clip_rect_stack_top;
 
+	// Call on begin_panel
+	void _start_painter(Context* context);
+	// Call when returning to a previous panel
+	void _restart_painter(Context* context);
 	void _push_command(Context* context);
 
-	void push_clip_rect(Rect rect);
-	void pop_clip_rect();
+	void push_clip_rect(Context* context, Rect rect);
+	void pop_clip_rect(Context* context);
+	Rect get_clip_rect();
 
 	//void draw_triangle();
+	void draw_rectangle(Context* context, v2 pos, v2 size, Color color, v2 uv1, v2 uv2);
+	void draw_rectangle(Context* context, v2 pos, v2 size, Color color);
+	void draw_rectangle(Context* context, Rect rect, Color color);
 
+	TriangleStripMode triangle_strip_mode;
 	// Count of vertices
 	i8 triangle_strip_counter;
+	u32 triangle_strip_indices[2];
 
+	// Triangle strips
 	void begin_triangle_strip();
 	void end_triangle_strip();
-	void add_strip_triangle(v2 pos, Color color, v2 uv = {0.f, 0.f});
+	void add_strip_triangle(Context* context, v2 pos, Color color, v2 uv);
+	void add_strip_triangle(Context* context, v2 pos, Color color);
 
 	// Some way to render convex shapes (circles and such)
-	//void begin_convex_strip();
-	//void end_convex_strip();
+	void begin_convex_strip();
+	void end_convex_strip();
 
-	void draw_text(Context* context, const char* text, v2 pos, Color color);
+	void draw_text(Context* context, Font* font, const char* text, v2 pos, f32 spacing, Color color);
+
+	void draw_circle(Context* context, v2 pos, f32 size, f32 t, Color color);
 };
+
+void rl_render(Context* context);
 
 
 // Returned by
@@ -229,7 +319,12 @@ struct Context {
 
 	u32 current_frame;
 
+	// Cleared on shutdown
 	Arena arena;
+	// Cleared every frame
+	Arena temp_arena;
+
+	// Stored in main arena
 	Panel* first_free_panel;
 	RetainedData* first_free_retained_data;
 	DrawCommand* first_free_draw_command;
@@ -245,6 +340,9 @@ struct Context {
 	// Temp clip rectangle
 	Rect clip_rect_stack[MAX_CLIP_RECT];
 	u32 clip_rect_stack_top;
+
+	// Atlas
+	Atlas atlas;
 };
 
 // Core

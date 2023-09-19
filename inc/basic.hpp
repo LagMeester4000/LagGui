@@ -4,8 +4,16 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
-#define LGUI_ASSERT(condition, message) do { if (!(condition)) { abort(); } } while (0)
+inline void __lgui_assert()
+{
+	int stop = 0;
+}
+
+#define _LGUI_MACRO_STRING(a) #a
+#define LGUI_MACRO_STRING(a) _LGUI_MACRO_STRING(a)
+#define LGUI_ASSERT(condition, message) do { if (!(condition)) { printf(__FILE__ "," LGUI_MACRO_STRING(__LINE__) ": " message "\n"); __lgui_assert(); abort(); } } while (0)
 #define LGUI_MIN(a, b) (((a) < (b)) ? (a) : (b))
 #define LGUI_MAX(a, b) (((a) > (b)) ? (a) : (b))
 #define LGUI_ABS(v) (((v) < 0) ? -(v) : (v))
@@ -81,6 +89,16 @@ struct Slice {
 	T* end() { return ptr + length; }
 };
 
+struct Arena;
+
+// Marker that automatically returns its arena to the point where the marker was created (using RAII)
+struct ArenaMarker {
+	Arena* arena;
+	usize used;
+
+	~ArenaMarker();
+};
+
 // Simple arena allocator
 // Any allocation (except raw) is initialized to 0 (ZII)
 struct Arena {
@@ -105,7 +123,7 @@ struct Arena {
 	void* allocate_raw(usize size)
 	{
 		LGUI_ASSERT(used + size <= length, "Out of memory");
-		void* ret = (void*)(ptr + size);
+		void* ret = (void*)(ptr + used);
 		used += size;
 		return ret;
 	}
@@ -114,7 +132,7 @@ struct Arena {
 	void* allocate(usize size)
 	{
 		LGUI_ASSERT(used + size <= length, "Out of memory");
-		void* ret = (void*)(ptr + size);
+		void* ret = (void*)(ptr + used);
 		memset(ret, 0, size);
 		used += size;
 		return ret;
@@ -131,6 +149,55 @@ struct Arena {
 	{
 		return (T*)allocate(sizeof(T));
 	}
+
+	ArenaMarker make_marker()
+	{
+		return {this, used};
+	}
 };
+
+inline ArenaMarker::~ArenaMarker()
+{
+	LGUI_ASSERT(arena->used >= used, "Improper usage of marker (returned to higher value than current)");
+	arena->used = used;
+}
+
+inline Slice<byte> read_file(Arena* arena, const char* filename)
+{
+	FILE* file;
+	if (fopen_s(&file, filename, "rb"))
+	{
+		return {};
+	}
+
+	fseek(file, 0, SEEK_END);
+	usize size = ftell(file);
+	fseek(file, 0, SEEK_SET);
+	void* ret = arena->allocate_raw(size);
+	fread_s(ret, size, size, 1, file);
+	fclose(file);
+
+	return {(byte*)ret, size};
+}
+
+inline bool does_file_exist(const char* filename)
+{
+	FILE* file;
+	if (fopen_s(&file, filename, "rb"))
+	{
+		return false;
+	}
+	fclose(file);
+	return true;
+}
+
+inline const char* copy_string(Arena* arena, const char* str)
+{
+	usize len = strlen(str);
+	char* ret = (char*)arena->allocate_raw(len + 1);
+	memcpy((void*)ret, str, len);
+	ret[len] = 0;
+	return ret;
+}
 
 }

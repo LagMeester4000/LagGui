@@ -17,6 +17,7 @@ Context* create_context()
 
 	Context* ret = arena.allocate_one<Context>();
 	ret->arena = arena;
+	ret->temp_arena = Arena::from_memory(malloc(mem_size), mem_size);
 
 	ret->draw_buffer.allocate(ret);
 	ret->current_frame = 1;
@@ -50,6 +51,8 @@ Context* create_context()
 
 void begin_frame(Context* context)
 {
+	context->temp_arena.reset();
+
 	// Find overlap panel
 	{
 		v2 mouse = v2::from(GetMousePosition());
@@ -80,7 +83,10 @@ void begin_frame(Context* context)
 
 void end_frame(Context* context)
 {
+	rl_render(context);
 
+	context->draw_buffer.vertex_buffer_top = 0;
+	context->draw_buffer.index_buffer_top = 0;
 }
 
 ID calc_id(Context* context, const byte* data, usize length)
@@ -170,6 +176,9 @@ bool begin_panel(Context* context, const char* name, Rect rect, PanelFlag flags)
 	Panel* panel = _get_or_create_panel(context, get_id(context, name));
 	push_id(context, panel->id);
 
+	// TODO: Check if there is already a panel, and end its painter
+	panel->painter._start_painter(context);
+
 	panel->flags = flags;
 	panel->rect = rect;
 
@@ -179,13 +188,16 @@ bool begin_panel(Context* context, const char* name, Rect rect, PanelFlag flags)
 
 	panel->draw_pos = panel->rect.top_left + v2{4, 4};
 
-	draw_rectangle(panel->rect.top_left, panel->rect.size(), Color{1, 0, 0, 1});
+	//draw_rectangle(panel->rect.top_left, panel->rect.size(), Color{1, 0, 0, 1});
+	panel->painter.draw_rectangle(context, panel->rect, Color{1, 0, 0, 1});
 
 	return true;
 }
 
 void end_panel(Context* context)
 {
+	get_current_panel(context)->painter._push_command(context);
+
 	pop_id(context);
 
 	LGUI_ASSERT(context->panel_stack_top > 0, "There is no panel to end");
@@ -255,7 +267,13 @@ InputResult button(Context* context, const char* name)
 		color.r = 1;
 	}
 
-	draw_rectangle(pos, size, color);
+	//draw_rectangle(pos, size, color);
+
+	auto& painter = get_current_panel(context)->painter;
+	Font* font = context->atlas.first_font;
+	painter.draw_rectangle(context, pos, size, color);
+	painter.draw_text(context, font, name, pos, 2, {1, 1, 1, 1});
+
 	return input;
 }
 
