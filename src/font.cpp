@@ -138,8 +138,7 @@ bool Atlas::build(Context* context)
 	// Create the font texture and glyph data
 
 	// Add extra height for one white pixel
-	//Slice<byte> texture = context->arena.allocate_array<byte>(packer.width * (packer.height + 1) * 4);
-	Slice<byte> texture = context->arena.allocate_array<byte>(packer.width * (packer.height + 1) * 1);
+	Slice<byte> texture = context->arena.allocate_array<byte>(packer.width * (packer.height + 1));
 	u32 texture_width = packer.width;
 	u32 texture_height = packer.height + 1;
 
@@ -158,9 +157,16 @@ bool Atlas::build(Context* context)
 		glyph.uv2 = {(f32)(rect.x + rect.w) / (f32)texture_width, (f32)(rect.y + rect.h) / (f32)texture_height};
 
 		Codepoint codepoint = rect.id;
-		int x0, y0, x1, y1;
+		int x0, y0, x1, y1, ascent;
 		stbtt_GetCodepointBitmapBox(&font->font_info, codepoint, font->scale, font->scale, &x0, &y0, &x1, &y1);
-		glyph.pos = {(f32)x0, (f32)y0};
+		stbtt_GetFontVMetrics(&font->font_info, &ascent, nullptr, nullptr);
+
+		int glyph_index = stbtt_FindGlyphIndex(&font->font_info, codepoint);
+		int advance_width;
+		stbtt_GetGlyphHMetrics(&font->font_info, glyph_index, &advance_width, nullptr);
+		glyph.advance_x = ((f32)advance_width) * font->scale;
+
+		glyph.pos = {(f32)x0, (f32)y0 + floorf(ascent * font->scale)};
 		glyph.size = {(f32)(x1 - x0), (f32)(y1 - y0)};
 
 		font->font->glyphs[rect.id - character_start] = glyph;
@@ -168,8 +174,6 @@ bool Atlas::build(Context* context)
 		stbtt_MakeCodepointBitmap(
 			&font->font_info,
 			texture.ptr + (texture_width * rect.y + rect.x) * 1,
-			//rect.w,
-			//rect.h,
 			x1 - x0,
 			y1 - y0,
 			texture_width * 1,
@@ -195,13 +199,11 @@ bool Atlas::build(Context* context)
 			texture_rgba[ind + 3] = texture[i];
 		}
 
-		//context->atlas.texture_id = rlLoadTexture((void*)texture.ptr, texture_width, texture_height, PIXELFORMAT_UNCOMPRESSED_GRAYSCALE, 1);
 		context->atlas.texture_id = rlLoadTexture((void*)texture_rgba.ptr, texture_width, texture_height, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8, 1);
 
 		Image im{};
 		im.data = (void*)texture_rgba.ptr;
 		im.format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8;
-		//im.format = PIXELFORMAT_UNCOMPRESSED_GRAYSCALE;
 		im.width = 512;
 		im.height = 512;
 		im.mipmaps = 1;
@@ -228,9 +230,8 @@ f32 Font::text_width(const char* text, f32 spacing) const
 	{
 		Codepoint codepoint = text[i];
 		const Glyph& glyph = get_glyph(codepoint);
-		x_off += glyph.size.x;
+		x_off += glyph.advance_x;
 	}
-	x_off += spacing * LGUI_MIN(((int)len) - 1, 0);
 	return x_off;
 }
 

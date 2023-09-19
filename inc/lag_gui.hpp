@@ -42,9 +42,45 @@ struct Rect {
 		return clip(other).area() > 0.f;
 	}
 
+	void move(v2 movement)
+	{
+		top_left += movement;
+		bottom_right += movement;
+	}
+
 	Rect pad(f32 amount) const
 	{
-		return {top_left + v2{amount, amount}, bottom_right - v2{amount, amount}};
+		v2 s = size();
+		v2 p = {
+			amount * 2.f > s.x ? s.x / 2.f : amount,
+			amount * 2.f > s.y ? s.y / 2.f : amount
+		};
+		return {top_left + p, bottom_right - p};
+	}
+
+	Rect cut_top(f32 amount)
+	{
+		f32 old = top_left.y;
+		top_left.y = LGUI_MIN(top_left.y + amount, bottom_right.y);
+		return Rect{{top_left.x, old}, {bottom_right.x, top_left.y}};
+	}
+	Rect cut_bottom(f32 amount)
+	{
+		f32 old = bottom_right.y;
+		bottom_right.y = LGUI_MAX(bottom_right.y - amount, top_left.y);
+		return Rect{{top_left.x, bottom_right.y}, {bottom_right.x, old}};
+	}
+	Rect cut_left(f32 amount)
+	{
+		f32 old = top_left.x;
+		top_left.x = LGUI_MIN(top_left.x + amount, bottom_right.x);
+		return Rect{{old, top_left.y}, {top_left.x, bottom_right.y}};
+	}
+	Rect cut_right(f32 amount)
+	{
+		f32 old = bottom_right.x;
+		bottom_right.x = LGUI_MAX(bottom_right.x - amount, top_left.x);
+		return Rect{{bottom_right.x, top_left.y}, {old, bottom_right.y}};
 	}
 };
 
@@ -57,12 +93,15 @@ struct RetainedData {
 
 	// Animation
 	f32 hover_t;
-	f32 goal_hover_t;
+	//f32 goal_hover_t;
 	f32 active_t;
-	f32 goal_active_t;
+	//f32 goal_active_t;
 
 	// State
 	bool open;
+
+	void update_t_linear(bool hover, bool active, f32 dt, f32 duration = 0.25f);
+	void update_t_towards(bool hover, bool active, f32 dt, f32 rate = 10.f);
 };
 
 // TEMP
@@ -105,6 +144,7 @@ struct Glyph {
 	v2 size;
 	v2 uv1;
 	v2 uv2;
+	f32 advance_x;
 };
 
 struct Font {
@@ -156,7 +196,23 @@ struct Atlas {
 };
 
 struct Style {
-	Font* font;
+	Font* default_font;
+
+	f32 line_padding; // Line padding on top of font size
+
+	Color window_background;
+	Color window_outline;
+	Color window_title_background;
+	Color window_title_color;
+
+	Color button_background;
+	Color button_background_hover;
+	Color button_background_down;
+	f32 button_padding;
+
+	Color checkbox_outline;
+
+	f32 line_height() const { return default_font->height + line_padding * 2.f; }
 };
 
 struct Panel;
@@ -222,12 +278,20 @@ struct InputResult {
 	bool released;
 	bool clicked;
 	bool hover;
+	bool down;
 	// True when a value is changed
 	bool changed;
 	bool dragging;
 	// Mouse position when the dragging started
 	v2 drag_start;
 	v2 drag_delta;
+};
+
+const f32 MIN_DRAG_DISTANCE = 2.f;
+
+struct MouseState {
+	v2 pos;
+	bool buttons[3];
 };
 
 /*
@@ -269,6 +333,9 @@ const usize RETAINED_TABLE_SIZE = 16;
 struct Panel {
 	PanelFlag flags;
 	ID id;
+	u32 frame_last_updated;
+	bool open;
+	f32 open_anim;
 
 	Rect rect;
 	Rect content;
@@ -300,6 +367,7 @@ struct Panel {
 
 const usize ID_STACK_SIZE = 32;
 const usize PANEL_STACK_SIZE = 32;
+const usize STYLE_STACK_SIZE = 32;
 
 struct Context {
 	Panel* first_depth_panel;
@@ -312,10 +380,14 @@ struct Context {
 	Panel* panel_stack[PANEL_STACK_SIZE];
 	u32 panel_stack_top;
 
+	// Input
 	Panel* overlap_panel;
 	ID overlap_id;
 	ID hover_id;
 	ID active_id;
+	v2 mouse_pressed_pos[3];
+	MouseState mouse_states[2];
+	bool mouse_dragging;
 
 	u32 current_frame;
 
@@ -332,14 +404,13 @@ struct Context {
 	DrawBuffer draw_buffer;
 	DrawBuffer merge_draw_buffer;
 
-	// Fonts
-	TextureID temp_font_texture;
-	stbtt_bakedchar temp_font_cdata[96];
-	f32 temp_font_height;
-
 	// Temp clip rectangle
 	Rect clip_rect_stack[MAX_CLIP_RECT];
 	u32 clip_rect_stack_top;
+
+	// Style
+	Style style_stack[STYLE_STACK_SIZE];
+	u32 style_stack_top;
 
 	// Atlas
 	Atlas atlas;
@@ -357,17 +428,28 @@ void push_id(Context* context, const char* string);
 void push_id(Context* context, i32 i);
 void pop_id(Context* context);
 
+void push_style(Context* context, const Style& style);
+void pop_style(Context* context);
+const Style& get_style(Context* context);
+void set_default_style(Context* context, const Style& style);
+
 Panel* get_panel(Context* context, ID id);
 Panel* get_current_panel(Context* context);
 bool begin_panel(Context* context, const char* name, Rect rect, PanelFlag flags);
 void end_panel(Context* context);
+void move_panel_to_front(Context* context, Panel* panel);
+
 
 // Gets the retained data, or create it if it doesn't exist
 RetainedData* get_retained_data(Context* context, ID id);
 
 v2 layout_next(Context* context);
 
-InputResult handle_element_input(Context* context, Rect rect, ID id);
+InputResult handle_element_input(Context* context, Rect rect, ID id, bool enable_drag = false);
+bool mouse_pressed(Context* context, int button = 0);
+bool mouse_released(Context* context, int button = 0);
+bool mouse_down(Context* context, int button = 0);
+v2 mouse_pos(Context* context);
 
 
 
@@ -389,6 +471,7 @@ void draw_rectangle(v2 pos, v2 size, Color color);
 // Builder code
 
 InputResult button(Context* context, const char* name);
+InputResult checkbox(Context* context, const char* name, bool* value);
 void text(Context* context, const char* text);
 
 }

@@ -256,10 +256,13 @@ void Painter::draw_text(Context* context, Font* font, const char* text, v2 pos, 
 	{
 		Codepoint codepoint = text[i];
 		const Glyph& glyph = font->get_glyph(codepoint);
-		v2 glyph_pos = {glyph.pos.x, font->height + glyph.pos.y};
 
-		draw_rectangle(context, pos + v2{x_off, 0} + glyph_pos, glyph.size, color, glyph.uv1, glyph.uv2);
-		x_off += glyph.size.x + spacing;
+		draw_rectangle(context, pos + v2{x_off, 0} + glyph.pos, glyph.size, color, glyph.uv1, glyph.uv2);
+		//v2 test_uv = v2{0.9999f, 0.999f};
+		//draw_rectangle(context, pos + v2{x_off, 0} + glyph.pos, glyph.size, color, test_uv, test_uv);
+
+		//x_off += glyph.size.x + spacing;
+		x_off += glyph.advance_x + spacing;
 	}
 }
 

@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
 
 inline void __lgui_assert()
 {
@@ -16,6 +17,7 @@ inline void __lgui_assert()
 #define LGUI_ASSERT(condition, message) do { if (!(condition)) { printf(__FILE__ "," LGUI_MACRO_STRING(__LINE__) ": " message "\n"); __lgui_assert(); abort(); } } while (0)
 #define LGUI_MIN(a, b) (((a) < (b)) ? (a) : (b))
 #define LGUI_MAX(a, b) (((a) > (b)) ? (a) : (b))
+#define LGUI_CLAMP(min, max, v) (LGUI_MAX(min, LGUI_MIN(max, v)))
 #define LGUI_ABS(v) (((v) < 0) ? -(v) : (v))
 #define LGUI_KB(v) ((v) * 1024)
 #define LGUI_MB(v) (LGUI_KB(v) * 1024)
@@ -59,6 +61,8 @@ struct v2 {
 	{
 		return {other.x, other.y};
 	}
+
+	f32 length() const { return sqrtf(x * x + y * y); }
 };
 
 inline v2 v2_min(v2 a, v2 b)
