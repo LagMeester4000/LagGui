@@ -105,14 +105,23 @@ void Painter::_push_command(Context* context)
 
 void Painter::_start_painter(Context* context)
 {
-	first_command = nullptr;
-	last_command = nullptr;
+	if (frame_last_updated != context->current_frame)
+	{
+		frame_last_updated = context->current_frame;
 
-	current_command.clip_rect = get_clip_rect();
-	current_command.vertex_start = context->draw_buffer.vertex_buffer_top;
-	current_command.vertex_end = current_command.vertex_start;
-	current_command.index_start = context->draw_buffer.index_buffer_top;
-	current_command.index_end = current_command.index_start;
+		first_command = nullptr;
+		last_command = nullptr;
+
+		current_command.clip_rect = get_clip_rect();
+		current_command.vertex_start = context->draw_buffer.vertex_buffer_top;
+		current_command.vertex_end = current_command.vertex_start;
+		current_command.index_start = context->draw_buffer.index_buffer_top;
+		current_command.index_end = current_command.index_start;
+	}
+	else
+	{
+		_push_command(context);
+	}
 }
 
 void Painter::_restart_painter(Context* context)
@@ -223,7 +232,7 @@ ColorU32 color32_from_f32_color(Color c)
 
 void Painter::draw_rectangle(Context* context, v2 pos, v2 size, Color color, v2 uv1, v2 uv2)
 {
-	ColorU32 color32 = color32_from_f32_color(color) ;
+	ColorU32 color32 = color32_from_f32_color(color);
 	u32 vx1 = push_vertex(context, this, pos, uv1, color32);
 	u32 vx2 = push_vertex(context, this, pos + v2{size.x, 0.f}, {uv2.x, uv1.y}, color32);
 	u32 vx3 = push_vertex(context, this, pos + v2{0.f, size.y}, {uv1.x, uv2.y}, color32);
@@ -240,6 +249,27 @@ void Painter::draw_rectangle(Context* context, v2 pos, v2 size, Color color)
 	draw_rectangle(context, pos, size, color, corner, corner);
 }
 
+void Painter::draw_rectangle_gradient(Context* context, v2 pos, v2 size, Color c1, Color c2, Color c3, Color c4)
+{
+	v2 uv = {0.9999f, 0.9999f};
+	ColorU32 color1 = color32_from_f32_color(c1);
+	ColorU32 color2 = color32_from_f32_color(c2);
+	ColorU32 color3 = color32_from_f32_color(c3);
+	ColorU32 color4 = color32_from_f32_color(c4);
+	u32 vx1 = push_vertex(context, this, pos, uv, color1);
+	u32 vx2 = push_vertex(context, this, pos + v2{size.x, 0.f}, uv, color2);
+	u32 vx3 = push_vertex(context, this, pos + v2{0.f, size.y}, uv, color3);
+	u32 vx4 = push_vertex(context, this, pos + size, uv, color4);
+
+	push_index_triangle(context, this, vx1, vx2, vx3);
+	push_index_triangle(context, this, vx2, vx3, vx4);
+}
+
+void Painter::draw_rectangle_gradient(Context* context, Rect rect, Color c1, Color c2, Color c3, Color c4)
+{
+	draw_rectangle_gradient(context, rect.top_left, rect.size(), c1, c2, c3, c4);
+}
+
 void Painter::draw_rectangle(Context* context, Rect rect, Color color)
 {
 	// 1.0 UV doesn't work
@@ -249,6 +279,8 @@ void Painter::draw_rectangle(Context* context, Rect rect, Color color)
 
 void Painter::draw_text(Context* context, Font* font, const char* text, v2 pos, f32 spacing, Color color)
 {
+	// Flooring the position to prevent weird rendering issues
+	pos = v2{floorf(pos.x), floorf(pos.y)};
 	f32 x_off = 0.f;
 
 	usize len = strlen(text);
@@ -263,6 +295,76 @@ void Painter::draw_text(Context* context, Font* font, const char* text, v2 pos, 
 
 		//x_off += glyph.size.x + spacing;
 		x_off += glyph.advance_x + spacing;
+	}
+}
+
+void Painter::draw_text(Context* context, Font* font, const char* text, usize text_length, v2 pos, f32 spacing, Color color)
+{
+	// Flooring the position to prevent weird rendering issues
+	pos = v2{floorf(pos.x), floorf(pos.y)};
+	f32 x_off = 0.f;
+
+	for (usize i = 0; i < text_length; ++i)
+	{
+		Codepoint codepoint = text[i];
+		LGUI_ASSERT(codepoint != 0, "End of string reached before provided text length");
+		const Glyph& glyph = font->get_glyph(codepoint);
+
+		draw_rectangle(context, pos + v2{x_off, 0} + glyph.pos, glyph.size, color, glyph.uv1, glyph.uv2);
+		x_off += glyph.advance_x + spacing;
+	}
+}
+
+bool Painter::draw_text_fit(Context* context, Font* font, const char* text, Rect rect, f32 spacing, Color color, i8 h_align, i8 v_align)
+{
+	usize len = strlen(text);
+	if (len == 0)
+	{
+		return true;
+	}
+	
+	f32 width = font->text_width(text, len, spacing);
+	if (width <= rect.width())
+	{
+		Rect text_rect = rect.align_size({width, font->height}, h_align, v_align);
+		draw_text(context, font, text, text_rect.top_left, spacing, color);
+		return true;
+	}
+	else
+	{
+		f32 dots_width = font->text_width("...", spacing);
+		f32 target_width = rect.width() - dots_width;
+
+		if (target_width <= 0.f)
+		{
+			// There is no space to even draw any dots
+			return false;
+		}
+		
+		usize fit_text_length = 0;
+		f32 fit_text_width = 0;
+		for (usize i = len - 1; i > 0; --i)
+		{
+			Codepoint codepoint = text[i - 1];
+			if (codepoint == ' ')
+			{
+				continue;
+			}
+
+			f32 w = font->text_width(text, i, spacing);
+			if (w <= target_width)
+			{
+				fit_text_length = i;
+				fit_text_width = w;
+				break;
+			}
+		}
+
+		Rect text_rect = rect.align_size({fit_text_width + dots_width, font->height}, -1, v_align);
+		draw_text(context, font, text, fit_text_length, text_rect.top_left, spacing, color);
+		draw_text(context, font, "...", text_rect.top_left + v2{fit_text_width, 0}, spacing, color);
+
+		return false;
 	}
 }
 

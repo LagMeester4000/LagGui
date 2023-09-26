@@ -15,6 +15,8 @@ inline void __lgui_assert()
 #define _LGUI_MACRO_STRING(a) #a
 #define LGUI_MACRO_STRING(a) _LGUI_MACRO_STRING(a)
 #define LGUI_ASSERT(condition, message) do { if (!(condition)) { printf(__FILE__ "," LGUI_MACRO_STRING(__LINE__) ": " message "\n"); __lgui_assert(); abort(); } } while (0)
+#define LGUI_TRAP(message) do { printf(__FILE__ "," LGUI_MACRO_STRING(__LINE__) ": " message "\n"); __lgui_assert(); abort(); } while (0)
+#define LGUI_UNREACHABLE LGUI_TRAP("Unreachable")
 #define LGUI_MIN(a, b) (((a) < (b)) ? (a) : (b))
 #define LGUI_MAX(a, b) (((a) > (b)) ? (a) : (b))
 #define LGUI_CLAMP(min, max, v) (LGUI_MAX(min, LGUI_MIN(max, v)))
@@ -22,6 +24,64 @@ inline void __lgui_assert()
 #define LGUI_KB(v) ((v) * 1024)
 #define LGUI_MB(v) (LGUI_KB(v) * 1024)
 #define LGUI_GB(v) (LGUI_GB(v) * 1024)
+
+// Linked list macros
+#define LGUI_LL_APPEND_END(obj, prev_name, next_name, first, last) \
+	{ \
+		if (first == nullptr) \
+		{ \
+			LGUI_ASSERT(last == nullptr, "If first is empty then last must be empty"); \
+			first = obj; \
+			last = obj; \
+			obj->prev_name = nullptr; \
+			obj->next_name = nullptr; \
+		} \
+		else \
+		{ \
+			LGUI_ASSERT(last != nullptr, "Last must exist"); \
+			last->next_name = obj; \
+			obj->prev_name = last; \
+			last = obj; \
+			obj->next_name = nullptr; \
+		} \
+	}
+// For singly linked list
+#define LGUI_SLL_APPEND_END(obj, next_name, first, last) \
+	{ \
+		if (first == nullptr) \
+		{ \
+			LGUI_ASSERT(last == nullptr, "If first is empty then last must be empty"); \
+			first = obj; \
+			last = obj; \
+			obj->next_name = nullptr; \
+		} \
+		else \
+		{ \
+			LGUI_ASSERT(last != nullptr, "Last must exist"); \
+			last->next_name = obj; \
+			last = obj; \
+			obj->next_name = nullptr; \
+		} \
+	}
+#define LGUI_LL_REMOVE(obj, prev_name, next_name, first, last) \
+	{ \
+		if (obj->prev_name != nullptr) \
+		{ \
+			obj->prev_name->next_name = obj->next_name; \
+		} \
+		if (obj->next_name != nullptr) \
+		{ \
+			obj->next_name->prev_name = obj->prev_name; \
+		} \
+		if (first == obj) \
+		{ \
+			first = obj->next_name; \
+		} \
+		if (last == obj) \
+		{ \
+			last = obj->prev_name; \
+		} \
+	}
 
 namespace lgui {
 
@@ -202,6 +262,20 @@ inline const char* copy_string(Arena* arena, const char* str)
 	memcpy((void*)ret, str, len);
 	ret[len] = 0;
 	return ret;
+}
+
+inline const char* copy_string_to_buffer(char* buffer, usize buffer_length, const char* str)
+{
+	usize str_length = strlen(str);
+	usize length = LGUI_MIN(buffer_length - 1, str_length);
+
+	for (usize i = 0; i < length; ++i)
+	{
+		buffer[i] = str[i];
+	}
+	buffer[length] = 0;
+
+	return buffer;
 }
 
 }

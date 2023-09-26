@@ -13,6 +13,8 @@ struct Rect {
 	v2 bottom_right;
 
 	v2 size() const { return {LGUI_ABS(bottom_right.x - top_left.x), LGUI_ABS(bottom_right.y - top_left.y)}; }
+	f32 width() const { return LGUI_ABS(bottom_right.x - top_left.x); }
+	f32 height() const { return LGUI_ABS(bottom_right.y - top_left.y); }
 	f32 area() const { return LGUI_ABS(bottom_right.x - top_left.x) * LGUI_ABS(bottom_right.y - top_left.y); }
 	static Rect from_pos_size(v2 pos, v2 size) { return {pos, pos + size}; }
 	// Returns a rect of overlapping region of the two rects (order does not matter)
@@ -28,9 +30,36 @@ struct Rect {
 	Rect center_size(v2 size) const
 	{
 		v2 pos = (top_left + bottom_right) / 2.f - size / 2.f;
-		return {pos, size};
+		return {pos, pos + size};
 	}
 	v2 center() const { return (top_left + bottom_right) / 2.f; }
+
+	// Create a rect of given size within this one, align it as specified
+	// horizontal/vertical values: -1 = min, 0 = center, 1 = max
+	// align_size(x, -1, -1) = top-left, align_size(x, 0, 1) = bottom-center
+	Rect align_size(v2 size, i8 horizontal, i8 vertical) const
+	{
+		v2 pos{};
+
+		switch (horizontal)
+		{
+		case -1: pos.x = top_left.x; break;
+		case 0: pos.x = top_left.x + (bottom_right.x - top_left.x) / 2.f - size.x / 2.f; break;
+		case 1: pos.x = bottom_right.x - size.x; break;
+		default: LGUI_TRAP("Invalid horizontal value used");
+		}
+
+		switch (vertical)
+		{
+		case -1: pos.y = top_left.y; break;
+		case 0: pos.y = top_left.y + (bottom_right.y - top_left.y) / 2.f - size.y / 2.f; break;
+		case 1: pos.y = bottom_right.y - size.y; break;
+		default: LGUI_TRAP("Invalid horizontal value used");
+		}
+
+		return {pos, pos + size};
+	}
+
 
 	bool overlap(v2 point) const
 	{
@@ -39,7 +68,10 @@ struct Rect {
 	}
 	bool overlap(const Rect& other) const
 	{
-		return clip(other).area() > 0.f;
+		return (top_left.x < other.bottom_right.x &&
+				other.top_left.x < bottom_right.x &&
+				top_left.y < other.bottom_right.y &&
+				other.top_left.y < bottom_right.y);
 	}
 
 	void move(v2 movement)
@@ -54,6 +86,15 @@ struct Rect {
 		v2 p = {
 			amount * 2.f > s.x ? s.x / 2.f : amount,
 			amount * 2.f > s.y ? s.y / 2.f : amount
+		};
+		return {top_left + p, bottom_right - p};
+	}
+	Rect pad(v2 amount) const
+	{
+		v2 s = size();
+		v2 p = {
+			amount.x * 2.f > s.x ? s.x / 2.f : amount.x,
+			amount.y * 2.f > s.y ? s.y / 2.f : amount.y
 		};
 		return {top_left + p, bottom_right - p};
 	}
@@ -81,6 +122,23 @@ struct Rect {
 		f32 old = bottom_right.x;
 		bottom_right.x = LGUI_MAX(bottom_right.x - amount, top_left.x);
 		return Rect{{bottom_right.x, top_left.y}, {old, bottom_right.y}};
+	}
+	// Same as cut methods, but without mutating
+	Rect get_top(f32 amount) const
+	{
+		return Rect{{top_left.x, top_left.y}, {bottom_right.x, LGUI_MIN(top_left.y + amount, bottom_right.y)}};
+	}
+	Rect get_bottom(f32 amount) const
+	{
+		return Rect{{top_left.x, LGUI_MAX(bottom_right.y - amount, top_left.y)}, {bottom_right.x, bottom_right.y}};
+	}
+	Rect get_left(f32 amount) const
+	{
+		return Rect{{top_left.x, top_left.y}, {LGUI_MIN(top_left.x + amount, bottom_right.x), bottom_right.y}};
+	}
+	Rect get_right(f32 amount) const
+	{
+		return Rect{{LGUI_MAX(bottom_right.x - amount, top_left.x), top_left.y}, {bottom_right.x, bottom_right.y}};
 	}
 };
 
@@ -159,6 +217,9 @@ struct Font {
 
 	const Glyph& get_glyph(Codepoint codepoint) const;
 	f32 text_width(const char* text, f32 spacing) const;
+	f32 text_width(const char* text, usize text_length, f32 spacing) const;
+	// Returns index of first character that doesn't fit (aka the length of the new string)
+	usize find_text_width_fit(const char* text, usize length, f32 spacing, f32 max_width) const;
 };
 
 struct Icon {
@@ -226,10 +287,11 @@ enum TriangleStripMode {
 };
 
 struct Painter {
-	Panel* panel;
 	DrawCommand* first_command;
 	DrawCommand* last_command;
 	DrawCommand current_command;
+
+	u32 frame_last_updated;
 
 	Rect clip_rect_stack[MAX_CLIP_RECT];
 	u32 clip_rect_stack_top;
@@ -248,6 +310,8 @@ struct Painter {
 	void draw_rectangle(Context* context, v2 pos, v2 size, Color color, v2 uv1, v2 uv2);
 	void draw_rectangle(Context* context, v2 pos, v2 size, Color color);
 	void draw_rectangle(Context* context, Rect rect, Color color);
+	void draw_rectangle_gradient(Context* context, v2 pos, v2 size, Color c1, Color c2, Color c3, Color c4);
+	void draw_rectangle_gradient(Context* context, Rect rect, Color c1, Color c2, Color c3, Color c4);
 
 	TriangleStripMode triangle_strip_mode;
 	// Count of vertices
@@ -265,6 +329,11 @@ struct Painter {
 	void end_convex_strip();
 
 	void draw_text(Context* context, Font* font, const char* text, v2 pos, f32 spacing, Color color);
+	void draw_text(Context* context, Font* font, const char* text, usize text_length, v2 pos, f32 spacing, Color color);
+	// Will attempt to draw text in the center of the provided rectangle, if it doesn't fit, it replaces text
+	//   with dots (...) to still make it fit
+	// Returns true when original text fits, returns false when it doesn't
+	bool draw_text_fit(Context* context, Font* font, const char* text, Rect rect, f32 spacing, Color color, i8 h_align = 0, i8 v_align = 0);
 
 	void draw_circle(Context* context, v2 pos, f32 size, f32 t, Color color);
 };
@@ -306,6 +375,52 @@ enum DockDirection {
 	DockDirection_Down,
 };
 
+struct Dock {
+	Rect rect;
+	u32 last_frame_registered; // Last frame this dock was added to the root dock list
+
+	// Root list
+	Dock* next_root;
+
+	DockDirection dock_direction;
+	f32 split_pos; // Split offset in pixels
+	Dock* child_docks[2];
+	Dock* parent_dock;
+	Panel* root_panel;
+
+	// The windows within this dock
+	Panel* first_tab;
+	Panel* last_tab;
+	Panel* selected_tab;
+
+	bool is_root() const { return parent_dock == nullptr; }
+	// Root can also be leaf
+	bool is_leaf() const { return first_tab != nullptr; }
+};
+
+enum DockEntry {
+	DockEntry_Into,
+	DockEntry_Right,
+	DockEntry_Left,
+	DockEntry_Top,
+	DockEntry_Bottom,
+};
+
+enum DockCommandType {
+	DockCommandType_DockInto,
+	DockCommandType_Remove,
+};
+
+// Docking command executed at the end of the frame
+// Allocated in temporary storage
+struct DockCommand {
+	DockCommand* next;
+	DockCommandType type;
+	DockEntry entry;
+	Panel* panel1;
+	Panel* panel2;
+};
+
 using PanelFlag = u32;
 enum {
 	PanelFlag_TitleBar = 1 << 0, // Show title bar
@@ -329,6 +444,7 @@ enum {
 };
 
 const usize RETAINED_TABLE_SIZE = 16;
+const usize PANEL_NAME_SIZE = 16;
 
 struct Panel {
 	PanelFlag flags;
@@ -347,22 +463,29 @@ struct Panel {
 	Panel* order_next; // Towards the screen
 	Panel* order_prev;
 
-	// Docking as a child
-	Panel* dock_next;
-	Panel* dock_prev;
-	Panel* dock_parent;
-	f32 dock_size;
+	// General list
+	Panel* next_panel;
+	Panel* prev_panel;
 
-	// Docking as a parent
-	Panel* dock_first_child;
-	Panel* dock_last_child;
-	DockDirection dock_direction;
+	// Docking
+	Dock* parent_dock; // Actually the root dock if this is the root panel
+	Panel* next_dock_tab;
+	Panel* prev_dock_tab;
+	Panel* root_dock_panel; // TODO: Can this be removed in favor of parent_dock->root_panel?
+	bool is_dock_root;
+	bool is_docked() const { return parent_dock; }
 
 	// Retained data of contained elements
 	RetainedData* retained_data_lookup[RETAINED_TABLE_SIZE];
 
 	// Rendering
 	Painter painter;
+	Painter& get_painter() { return is_docked() ? parent_dock->root_panel->painter : painter; }
+
+	char name[PANEL_NAME_SIZE];
+
+	// (If docked) the rectangle of the tab for this panel
+	Rect dock_tab_rect;
 };
 
 const usize ID_STACK_SIZE = 32;
@@ -370,8 +493,20 @@ const usize PANEL_STACK_SIZE = 32;
 const usize STYLE_STACK_SIZE = 32;
 
 struct Context {
+	// List of all panels
+	Panel* first_panel;
+	Panel* last_panel;
+
+	// List of root panels sorted by depth/render order
 	Panel* first_depth_panel;
 	Panel* last_depth_panel;
+
+	// Lost of all root docks
+	Dock* first_root_dock;
+	Dock* last_root_dock;
+
+	DockCommand* first_dock_command;
+	DockCommand* last_dock_command;
 
 	ID id_stack[ID_STACK_SIZE];
 	u32 id_stack_top;
@@ -424,8 +559,10 @@ void end_frame(Context* context);
 
 ID get_id(Context* context, const char* string);
 ID get_id(Context* context, i32 i);
+ID get_id(Context* context, void* ptr);
 void push_id(Context* context, const char* string);
 void push_id(Context* context, i32 i);
+void push_id(Context* context, void* ptr);
 void pop_id(Context* context);
 
 void push_style(Context* context, const Style& style);
@@ -472,6 +609,9 @@ void draw_rectangle(v2 pos, v2 size, Color color);
 
 InputResult button(Context* context, const char* name);
 InputResult checkbox(Context* context, const char* name, bool* value);
-void text(Context* context, const char* text);
+InputResult radio_button(Context* context, const char* name, int option, int* selected);
+InputResult drag_value(Context* context, const char* name, f32* value);
+bool collapse_header(Context* context, const char* name);
+void text(Context* context, const char* text, bool wrap = false);
 
 }

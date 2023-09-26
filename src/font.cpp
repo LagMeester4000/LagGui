@@ -235,4 +235,29 @@ f32 Font::text_width(const char* text, f32 spacing) const
 	return x_off;
 }
 
+f32 Font::text_width(const char* text, usize text_length, f32 spacing) const
+{
+	f32 x_off = 0.f;
+	for (usize i = 0; i < text_length; ++i)
+	{
+		Codepoint codepoint = text[i];
+		const Glyph& glyph = get_glyph(codepoint);
+		x_off += glyph.advance_x;
+	}
+	return x_off;
+}
+
+usize Font::find_text_width_fit(const char* text, usize text_length, f32 spacing, f32 max_width) const
+{
+	f32 x_off = 0.f;
+	usize i = 0;
+	for (; i < text_length && x_off <= max_width; ++i)
+	{
+		Codepoint codepoint = text[i];
+		const Glyph& glyph = get_glyph(codepoint);
+		x_off += glyph.advance_x;
+	}
+	return i;
+}
+
 }
