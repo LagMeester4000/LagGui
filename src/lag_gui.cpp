@@ -127,6 +127,11 @@ void end_frame(Context* context)
 	context->draw_buffer.index_buffer_top = 0;
 }
 
+bool is_anything_hovered(Context* context)
+{
+	return context->hover_id != 0;
+}
+
 ID calc_id(Context* context, const byte* data, usize length)
 {
 	ID top = context->id_stack_top > 0 ? context->id_stack[context->id_stack_top - 1] : 123456;
@@ -213,6 +218,8 @@ static bool is_more_towards_screen(Panel* current, Panel* other)
 	return true;
 }
 
+#pragma region Docking
+
 static void push_dock_command(Context* context, const DockCommand& command)
 {
 	DockCommand* new_command = context->temp_arena.allocate_one<DockCommand>();
@@ -270,6 +277,7 @@ static Dock* make_panel_docked(Context* context, Panel* panel)
 	Panel* root_panel = _get_or_create_panel(context, id);
 	root_panel->rect = panel->rect;
 	root_panel->is_dock_root = true;
+	root_panel->root_dock_panel = root_panel; // Is this correct?
 	root_panel->parent_dock = dock;
 	panel->root_dock_panel = root_panel;
 	dock->root_panel = root_panel;
@@ -471,7 +479,7 @@ static void root_dock_update_from_panel(Context* context, Dock* dock, Panel* pan
 	{
 		// TODO: Maybe change this to use each sub-window title bar instead, because that way I can select the window as well
 
-		InputResult result = handle_element_input(context, dock->rect, get_id(context, "__panel_drag"), true);
+		InputResult result = handle_element_input(context, dock_root->rect, get_id(context, "__panel_drag"), true);
 		if (result.dragging)
 		{
 			move_all_child_docks(dock_root, result.drag_delta);
@@ -545,7 +553,7 @@ static void dock_update_from_panel(Context* context, Dock* dock, Panel* panel)
 }
 
 // Dock update at end of frame, from the root dock upwards
-static void end_dock_update_layout(Context* context, Dock* dock)
+static void _end_dock_update_layout(Context* context, Dock* dock)
 {
 	if (dock->is_leaf())
 	{
@@ -562,35 +570,220 @@ static void end_dock_update_layout(Context* context, Dock* dock)
 
 		if (dock->dock_direction == DockDirection_Right)
 		{
-			dock->child_docks[0]->rect = rect.cut_top(dock->split_pos);
+			dock->child_docks[0]->rect = rect.cut_left(dock->split_pos);
 			dock->child_docks[1]->rect = rect;
 		}
 		else // Down
 		{
-			dock->child_docks[0]->rect = rect.cut_left(dock->split_pos);
+			dock->child_docks[0]->rect = rect.cut_top(dock->split_pos);
 			dock->child_docks[1]->rect = rect;
 		}
 
-		end_dock_update_layout(context, dock->child_docks[0]);
-		end_dock_update_layout(context, dock->child_docks[1]);
+		_end_dock_update_layout(context, dock->child_docks[0]);
+		_end_dock_update_layout(context, dock->child_docks[1]);
 	}
+}
+
+static void _end_dock_update_input(Context* context, Dock* dock)
+{
+	push_id(context, dock);
+
+	if (dock->is_leaf())
+	{
+		pop_id(context);
+		return;
+	}
+
+	Rect rect = dock->rect;
+	Rect resize_rect;
+	if (dock->dock_direction == DockDirection_Right)
+	{
+		rect.cut_left(dock->split_pos - 2);
+		resize_rect = rect.cut_left(4);
+	}
+	else // Down
+	{
+		rect.cut_top(dock->split_pos - 2);
+		resize_rect = rect.cut_top(4);
+	}
+
+	InputResult input = handle_element_input(context, resize_rect, get_id(context, "__resize_split_bar"), true);
+
+	// Debug
+	{
+		dock->root_panel->get_painter().draw_rectangle(context, resize_rect, { 1, 0, 0, 1 });
+	}
+
+	if (input.dragging)
+	{
+		if (dock->dock_direction == DockDirection_Right)
+		{
+			dock->split_pos += input.drag_delta.x;
+		}
+		else // Down
+		{
+			dock->split_pos += input.drag_delta.y;
+		}
+	}
+
+	if (dock->child_docks[0])
+	{
+		_end_dock_update_input(context, dock->child_docks[0]);
+	}
+	if (dock->child_docks[1])
+	{
+		_end_dock_update_input(context, dock->child_docks[1]);
+	}
+
+	pop_id(context);
 }
 
 static void root_dock_update(Context* context, Dock* dock)
 {
+	push_panel(context, dock->root_panel);
+	push_id(context, dock->root_panel->id);
+	Painter& painter = dock->root_panel->get_painter();
+	painter._restart_painter(context);
+
 	// Call this at the end of the frame, on the root dock
 
 	// Calculate rectangles
+	f32 resize_bar_size = 8.f;
+	Rect rect = dock->rect;
+	Rect panel_top = rect.cut_top(resize_bar_size);
+	Rect panel_bottom = rect.cut_bottom(resize_bar_size);
+	Rect panel_left = rect.cut_left(resize_bar_size);
+	Rect panel_right = rect.cut_right(resize_bar_size);
 
 	// Handle input
 	{
 		// Panel resizing (the lines in-between panels)
+		
+		InputResult top = handle_element_input(context, panel_top, get_id(context, "__resize_top"), true);
+		InputResult bottom = handle_element_input(context, panel_bottom, get_id(context, "__resize_bottom"), true);
+		InputResult left = handle_element_input(context, panel_left, get_id(context, "__resize_left"), true);
+		InputResult right = handle_element_input(context, panel_right, get_id(context, "__resize_right"), true);
+
+		if (top.dragging)
+		{
+			dock->rect.top_left.y += top.drag_delta.y;
+		}
+		if (bottom.dragging)
+		{
+			dock->rect.bottom_right.y += bottom.drag_delta.y;
+		}
+		if (left.dragging)
+		{
+			dock->rect.top_left.x += left.drag_delta.x;
+		}
+		if (right.dragging)
+		{
+			dock->rect.bottom_right.x += right.drag_delta.x;
+		}
+
+		_end_dock_update_input(context, dock);
+	}
+
+	// Draw
+	{
 
 	}
 
 	// Update all layouts now that size is known
-	end_dock_update_layout(context, dock);
+	dock->root_panel->rect = dock->rect;
+	_end_dock_update_layout(context, dock);
+
+	painter._push_command(context);
+	pop_id(context);
+	pop_panel(context);
 }
+
+static void check_docking(Context* context, Panel* panel, InputResult* input_result)
+{
+	if (input_result->dragging || input_result->released)
+	{
+		Painter& painter = panel->get_painter();
+
+		for (Panel* it = context->first_panel; it; it = it->next_panel)
+		{
+			if (it == panel) continue;
+
+			Rect rect = it->rect;
+			if (!rect.overlap(panel->rect)) continue;
+
+			Rect center = rect.center_size(v2{50, 50});
+			Rect left = rect.get_left(50).center_size({50, 50});
+			Rect right = rect.get_right(50).center_size({50, 50});
+			Rect top = rect.get_top(50).center_size({50, 50});
+			Rect bottom = rect.get_bottom(50).center_size({50, 50});
+
+			Color c = {0, 0, 1, 1};
+			painter.draw_rectangle(context, center, c);
+			painter.draw_rectangle(context, left, c);
+			painter.draw_rectangle(context, right, c);
+			painter.draw_rectangle(context, top, c);
+			painter.draw_rectangle(context, bottom, c);
+
+			if (input_result->released)
+			{
+				if (center.overlap(mouse_pos(context)))
+				{
+					//dock_into(context, panel, it, DockEntry_Into);
+					DockCommand command{};
+					command.type = DockCommandType_DockInto;
+					command.panel1 = panel;
+					command.panel2 = it;
+					command.entry = DockEntry_Into;
+					push_dock_command(context, command);
+					return;
+				}
+				else if (left.overlap(mouse_pos(context)))
+				{
+					DockCommand command{};
+					command.type = DockCommandType_DockInto;
+					command.panel1 = panel;
+					command.panel2 = it;
+					command.entry = DockEntry_Left;
+					push_dock_command(context, command);
+					return;
+				}
+				else if (right.overlap(mouse_pos(context)))
+				{
+					DockCommand command{};
+					command.type = DockCommandType_DockInto;
+					command.panel1 = panel;
+					command.panel2 = it;
+					command.entry = DockEntry_Right;
+					push_dock_command(context, command);
+					return;
+				}
+				else if (top.overlap(mouse_pos(context)))
+				{
+					DockCommand command{};
+					command.type = DockCommandType_DockInto;
+					command.panel1 = panel;
+					command.panel2 = it;
+					command.entry = DockEntry_Top;
+					push_dock_command(context, command);
+					return;
+				}
+				else if (bottom.overlap(mouse_pos(context)))
+				{
+					DockCommand command{};
+					command.type = DockCommandType_DockInto;
+					command.panel1 = panel;
+					command.panel2 = it;
+					command.entry = DockEntry_Bottom;
+					push_dock_command(context, command);
+					return;
+				}
+			}
+		}
+	}
+}
+
+// Docking
+#pragma endregion
 
 Panel* get_panel(Context* context, ID id)
 {
@@ -599,6 +792,16 @@ Panel* get_panel(Context* context, ID id)
 		if (panel->id) return panel;
 	}
 	return nullptr;
+}
+
+static Panel* try_get_prev_top_panel(Context* context)
+{
+	return context->panel_stack_top > 1 ? context->panel_stack[context->panel_stack_top - 2] : nullptr;
+}
+
+static Panel* try_get_current_panel(Context* context)
+{
+	return context->panel_stack_top > 0 ? context->panel_stack[context->panel_stack_top - 1] : nullptr;
 }
 
 Panel* get_current_panel(Context* context)
@@ -671,67 +874,6 @@ static void draw_open_triangle(Context* context, Painter* painter, v2 pos, f32 s
 	painter->end_triangle_strip();
 }
 
-void check_docking(Context* context, Panel* panel, InputResult* input_result)
-{
-	if (input_result->dragging || input_result->released)
-	{
-		Painter& painter = panel->get_painter();
-
-		for (Panel* it = context->first_panel; it; it = it->next_panel)
-		{
-			if (it == panel) continue;
-
-			Rect rect = it->rect;
-			if (!rect.overlap(panel->rect)) continue;
-
-			Rect center = rect.center_size(v2{50, 50});
-			Rect left = rect.get_left(50).center_size({50, 50});
-			Rect right = rect.get_right(50).center_size({50, 50});
-			Rect top = rect.get_top(50).center_size({50, 50});
-			Rect bottom = rect.get_bottom(50).center_size({50, 50});
-
-			Color c = {0, 0, 1, 1};
-			painter.draw_rectangle(context, center, c);
-			painter.draw_rectangle(context, left, c);
-			painter.draw_rectangle(context, right, c);
-			painter.draw_rectangle(context, top, c);
-			painter.draw_rectangle(context, bottom, c);
-
-			if (input_result->released)
-			{
-				if (center.overlap(mouse_pos(context)))
-				{
-					//dock_into(context, panel, it, DockEntry_Into);
-					DockCommand command{};
-					command.type = DockCommandType_DockInto;
-					command.panel1 = panel;
-					command.panel2 = it;
-					command.entry = DockEntry_Into;
-					push_dock_command(context, command);
-					return;
-				}
-				else if (right.overlap(mouse_pos(context)))
-				{
-					//dock_into(context, panel, it, DockEntry_Into);
-					DockCommand command{};
-					command.type = DockCommandType_DockInto;
-					command.panel1 = panel;
-					command.panel2 = it;
-					command.entry = DockEntry_Right;
-					push_dock_command(context, command);
-					return;
-				}
-			}
-		}
-	}
-
-	// TODO: Should only happen if the window was dragged
-	if (input_result->released)
-	{
-		printf("RELEAAAASSDDD\n");
-	}
-}
-
 static void push_panel(Context* context, Panel* panel)
 {
 	// Push on stack
@@ -747,20 +889,43 @@ static void pop_panel(Context* context)
 	--context->panel_stack_top;
 }
 
+static bool is_painter_updated(Context* context, Painter& painter)
+{
+	return	painter.frame_last_updated == context->current_frame;
+}
+
 bool begin_panel(Context* context, const char* name, Rect rect, PanelFlag flags)
 {
 	Panel* panel = _get_or_create_panel(context, get_id(context, name));
 	push_id(context, panel->id);
 	push_panel(context, panel);
+	Panel* prev_top_panel = try_get_prev_top_panel(context);
 
 	copy_string_to_buffer(panel->name, PANEL_NAME_SIZE, name);
 
-	// TODO: Check if there is already a panel, and end its painter
-	panel->get_painter()._start_painter(context);
+	// End painter of parent panel if it exists
+	if (prev_top_panel)
+	{
+		prev_top_panel->get_painter()._push_command(context);
+	}
 
 	if (panel->is_docked())
 	{
+		Painter& painter = panel->get_painter();
+		if (is_painter_updated(context, painter))
+		{
+			painter._restart_painter(context);
+		}
+		else
+		{
+			painter._start_painter(context);
+		}
+
 		dock_update_from_panel(context, panel->parent_dock, panel);
+	}
+	else
+	{
+		panel->get_painter()._start_painter(context);
 	}
 
 	panel->flags = flags;
@@ -782,7 +947,8 @@ bool begin_panel(Context* context, const char* name, Rect rect, PanelFlag flags)
 	Painter& painter = panel->get_painter();
 	f32 line_height = style.line_height();
 	Rect window_whole = panel->rect;
-	// Animate
+	
+	// Animate open/close
 	window_whole.bottom_right.y = lerp(window_whole.top_left.y + line_height + 2, window_whole.bottom_right.y, panel->open_anim);
 	Rect window_pad = window_whole.pad(1);
 
@@ -847,7 +1013,7 @@ bool begin_panel(Context* context, const char* name, Rect rect, PanelFlag flags)
 		{
 			// TODO: Change this into a dock command?
 			// Currently this causes flicker when switching back the first panel (but not the other way around?)
-			InputResult input = handle_element_input(context, panel->dock_tab_rect, get_id(context, "__tab"), true);
+			InputResult input = handle_element_input(context, panel->dock_tab_rect, get_id(context, "__tab"), true, true);
 			if (input.clicked)
 			{
 				dock_select_panel(context, panel);
@@ -864,7 +1030,6 @@ bool begin_panel(Context* context, const char* name, Rect rect, PanelFlag flags)
 		if (has_title_bar)
 		{
 			painter.draw_rectangle(context, window_title_bar, style.window_title_background);
-			//painter.draw_text(context, style.default_font, panel->open ? "-" : "+", window_title_bar.top_left + v2{style.line_padding, style.line_padding}, 0, style.window_title_color);
 			painter.draw_text(context, style.default_font, name, window_title_bar.top_left + v2{line_height, style.line_padding}, 0, style.window_title_color);
 
 			f32 triangle_pad = style.line_padding + 3;
@@ -873,7 +1038,8 @@ bool begin_panel(Context* context, const char* name, Rect rect, PanelFlag flags)
 
 	}
 	panel->content = window_pad.pad(2);
-	panel->draw_pos = panel->content.top_left;
+	panel->start_draw_pos = panel->content.top_left - panel->scroll_pos;
+	panel->draw_pos = panel->start_draw_pos;
 	painter.push_clip_rect(context, panel->content);
 
 
@@ -895,8 +1061,48 @@ bool begin_panel(Context* context, const char* name, Rect rect, PanelFlag flags)
 
 void end_panel(Context* context)
 {
-	Painter& painter = get_current_panel(context)->get_painter();
+	Panel* panel = get_current_panel(context);
+	Painter& painter = panel->get_painter();
+
+	panel->end_draw_pos = panel->draw_pos;
+	v2 draw_size = panel->end_draw_pos - panel->start_draw_pos;
+
+	// Y Scroll
+	if (draw_size.y > panel->content.height() && draw_size.y > 10.f)
+	{
+		v2 scroll_size = draw_size - panel->content.size();
+		Rect rect = panel->content;
+		rect = rect.cut_right(8);
+		Rect scroll_base = rect.cut_top(50);
+
+		Rect scroll = scroll_base;
+		f32 scroll_per_pixel = rect.height() / scroll_size.y;
+		scroll.move({0, scroll_per_pixel * panel->scroll_pos.y});
+		
+		InputResult input = handle_element_input(context, scroll, get_id(context, "__scroll_y"), true);
+		if (input.dragging)
+		{
+			f32 movement = input.drag_delta.y / scroll_per_pixel;
+			panel->scroll_pos.y += movement;
+			panel->scroll_pos.y = LGUI_CLAMP(0.f, scroll_size.y, panel->scroll_pos.y);
+
+			// Immediately move the rect
+			scroll = scroll_base;
+			f32 scroll_per_pixel = rect.height() / scroll_size.y;
+			scroll.move({0, scroll_per_pixel * panel->scroll_pos.y});
+		}
+
+		painter.draw_rectangle(context, scroll, {0.4, 0.4, 0.4, 0.7});
+	}
+
 	painter.pop_clip_rect(context);
+
+	// Restart painter of previous window if it exists
+	Panel* prev_top_panel = try_get_prev_top_panel(context);
+	if (prev_top_panel)
+	{
+		prev_top_panel->get_painter()._restart_painter(context);
+	}
 
 	pop_id(context);
 	pop_panel(context);
@@ -973,7 +1179,7 @@ v2 layout_next(Context* context)
 	return ret;
 }
 
-InputResult handle_element_input(Context* context, Rect rect, ID id, bool enable_drag)
+InputResult handle_element_input(Context* context, Rect rect, ID id, bool enable_drag, bool ignore_clip)
 {
 	InputResult ret{};
 
@@ -984,6 +1190,12 @@ InputResult handle_element_input(Context* context, Rect rect, ID id, bool enable
 	if (current_panel->is_docked())
 	{
 		current_panel = current_panel->root_dock_panel;
+	}
+
+	// Clip the rect so you don't get invisible clickable elements
+	if (!ignore_clip)
+	{
+		rect = rect.clip(current_panel->get_painter().get_clip_rect());
 	}
 
 	if (context->overlap_panel == current_panel &&
@@ -1350,6 +1562,154 @@ void DrawBuffer::allocate(Context* context)
 
 	vertex_buffer = (f32*)context->arena.allocate(short_max * vertex_size);
 	index_buffer = (u16*)context->arena.allocate(index_buffer_length * index_size);
+}
+
+Rect allocate_line(Layout* layout, v2 size)
+{
+	if (layout->same_line)
+	{
+		layout->same_line = false;
+		return layout->prev_line;
+	}
+
+	if (layout->is_horizontal)
+	{
+		f32 height = layout->cross_axis_size;
+		f32 width = LGUI_MAX(layout->min_line_size, size.x);
+		Rect ret = Rect::from_pos_size(
+			layout->start + v2{layout->cursor, 0},
+			{width, height}
+		);
+		layout->cursor += width + layout->spacing;
+		return ret;
+	}
+	else // Vertical
+	{
+		f32 width = layout->cross_axis_size;
+		f32 height = LGUI_MAX(layout->min_line_size, size.y);
+		Rect ret = Rect::from_pos_size(
+			layout->start + v2{0, layout->cursor},
+			{width, height}
+		);
+		layout->cursor += height + layout->spacing;
+		return ret;
+	}
+}
+
+void layout_check_stretch_cross_axis(Layout* layout, Rect rect)
+{
+	if (layout->is_horizontal)
+	{
+		if (layout->reverse)
+		{
+			if (rect.top_left.x < layout->start.x - layout->max_size.x)
+			{
+				layout->max_size.x = layout->start.x - rect.top_left.x;
+			}
+		}
+		else
+		{
+			if (rect.bottom_right.x > layout->start.x + layout->max_size.x)
+			{
+				layout->max_size.x = rect.bottom_right.x - layout->start.x;
+			}
+		}
+	}
+	else // Vertical
+	{
+		if (layout->reverse)
+		{
+			if (rect.top_left.y < layout->start.y - layout->max_size.y)
+			{
+				layout->max_size.y = layout->start.y - rect.top_left.y;
+			}
+		}
+		else
+		{
+			if (rect.bottom_right.y > layout->start.y + layout->max_size.y)
+			{
+				layout->max_size.y = rect.bottom_right.y - layout->start.y;
+			}
+		}
+	}
+}
+
+Rect Layout::allocate(v2 size)
+{
+	// 1. Allocate a full cross size rect
+	// 2. Cut a piece off this rect, which is the rect to be returned
+	// 3. Store the remaining rect in prev_line
+
+	Rect line = allocate_line(this, size);
+	
+	if (is_horizontal)
+	{
+		Rect ret{};
+		if (v_align == -1)
+		{
+			ret = line.cut_top(size.x);
+			line.cut_top(cross_spacing);
+		}
+		else if (v_align == 1)
+		{
+			ret = line.cut_bottom(size.y);
+			line.cut_bottom(cross_spacing);
+		}
+		else
+		{
+			LGUI_ASSERT(v_align == 0, "v_align does not have a valid value");
+			line.cut_top(line.height() / 2.f - size.y / 2.f);
+			ret = line.cut_top(size.y);
+			line.cut_top(cross_spacing);
+		}
+
+		prev_line = line;
+		return ret.align_size(size, h_align, 0);
+	}
+	else // Vertical
+	{
+		Rect ret{};
+		if (h_align == -1)
+		{
+			ret = line.cut_left(size.x);
+			line.cut_left(cross_spacing);
+		}
+		else if (h_align == 1)
+		{
+			ret = line.cut_right(size.x);
+			line.cut_right(cross_spacing);
+		}
+		else
+		{
+			LGUI_ASSERT(h_align == 0, "h_align does not have a valid value");
+			line.cut_left(line.width() / 2.f - size.x / 2.f);
+			ret = line.cut_left(size.x);
+			line.cut_left(cross_spacing);
+		}
+
+		prev_line = line;
+		return ret.align_size(size, 0, v_align);
+	}
+}
+
+void debug_menu(Context* context)
+{
+	if (begin_panel(context, "Debug Window", Rect::from_pos_size({}, {400, 300}), 0))
+	{
+		const int buffer_size = 64;
+		char buffer[buffer_size]{};
+
+		snprintf(buffer, buffer_size, "hover_id = %d", context->hover_id);
+		text(context, buffer);
+		snprintf(buffer, buffer_size, "active_id = %d", context->active_id);
+		text(context, buffer);
+		snprintf(buffer, buffer_size, "overlap_id = %d", context->overlap_id);
+		text(context, buffer);
+		snprintf(buffer, buffer_size, "overlap_panel = %p", context->overlap_panel);
+		text(context, buffer);
+		
+		end_panel(context);
+	}
 }
 
 }

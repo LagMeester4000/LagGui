@@ -10,7 +10,10 @@
 
 using v2 = lgui::v2;
 using Rect = lgui::Rect;
+using f32 = lgui::f32;
+using Rect = lgui::Rect;
 
+lgui::Font* g_font = 0;
 
 
 /*
@@ -35,9 +38,42 @@ struct AreaHelper {
 
 	v2 loop_offset(v2 cell_size) const;
 	v2 loop_stride(v2 cell_size) const;
+
+	// Iterator
+	AreaIterator begin()
+	{
+		return ...;
+	}
+
+	AreaIterator end()
+	{
+		AreaIterator ret{};
+		ret.done = true;
+		return ret;
+	}
+};
+
+// I think it's important to also add an iterator
+struct AreaIterator {
+	// Internal
+	bool done;
+	bool is_horizontal;
+	v2 start_pos_pixels;
+	f32 end_pos_pixels;
+	int start_index;
+	f32 offset_pixels; // Offset for start_pos (negative number)
+	f32 cell_size_pixels; // Advance value
+
+	// Iterator functions
+	bool operator==(const AreaIterator& other) const { return done == other.done; }
+	// ++ operator blah blah
+
+	// Interface
+	int cell_index; // Very useful for things like alternating background colors, or piano keys in piano roll
+	f32 position; // Position along its axis
+	f32 size; // Size along its axis (vertical or horizontal)
 };
 */
-
 
 
 struct Note {
@@ -127,7 +163,7 @@ void area_test(lgui::Context* context, NoteArea& area)
 		{
 			auto& it = area.notes[i];
 
-			Rect note_rect = Rect::from_pos_size(rect.top_left - pos + cell_size * v2{it.x, (float)it.tone}, 
+			Rect note_rect = Rect::from_pos_size(rect.top_left - pos + cell_size * v2{it.x, (float)it.tone},
 				v2{it.width * cell_size.x, cell_size.y});
 			note_rect.cut_bottom(-1);
 
@@ -181,11 +217,13 @@ void area_test(lgui::Context* context, NoteArea& area)
 			area.notes.push_back(note);
 		}
 
-	
+
 		lgui::end_panel(context);
 	}
 }
 
+extern void ast_init();
+extern void ast_update(lgui::Context* context);
 
 int main()
 {
@@ -200,8 +238,10 @@ int main()
 
 	lgui::Context* context = lgui::create_context();
 
-	lgui::Font* font = context->atlas.add_font(context, "Montserrat-Regular.ttf", 18);
+	lgui::Font* font = context->atlas.add_font(context, "resources/fonts/montserrat/Montserrat-Regular.ttf", 18);
+	lgui::Font* mono_font = context->atlas.add_font(context, "resources/fonts/ubuntu/UbuntuMono-R.ttf", 18);
 	context->atlas.build(context);
+	g_font = mono_font;
 
 	lgui::Style style{};
 	style.default_font = font;
@@ -226,6 +266,8 @@ int main()
 	NoteArea area{};
 	area.scale = {1, 1};
 
+	ast_init();
+
 	while (!WindowShouldClose())
 	{
 		if (IsKeyPressed(KEY_F11))
@@ -241,6 +283,16 @@ int main()
 			rlDisableBackfaceCulling();
 
 			lgui::begin_frame(context);
+
+			for (int i = 0; i < 30; ++i)
+			{
+				lgui::push_id(context, i);
+				if (lgui::begin_panel(context, "My Window", lgui::Rect::from_pos_size(lgui::v2{(f32)i * 2, (f32)i * 2}, lgui::v2{100, 100}), 0))
+				{
+					lgui::end_panel(context);
+				}
+				lgui::pop_id(context);
+			}
 
 			if (lgui::begin_panel(context, "My Window", lgui::Rect::from_pos_size(lgui::v2{100, 100}, lgui::v2{300, 300}), 0))
 			{
@@ -307,12 +359,15 @@ int main()
 				lgui::end_panel(context);
 			}
 
-			area_test(context, area);
+			lgui::debug_menu(context);
+
+			//area_test(context, area);
+
+			ast_update(context);
 
 			lgui::end_frame(context);
 
 
-			/*
 			//rlBegin(RL_QUADS);
 			rlBegin(RL_TRIANGLES);
 			//rlColor4ub(255, 200, 255, 255);
@@ -335,7 +390,6 @@ int main()
 			rlTexCoord2f(1, 1);
 			rlVertex2f(w, w);
 			rlEnd();
-			*/
 
 			//rlEnableTexture(context->atlas.texture_id);
 			//DrawRectangle(10, 10, 100, 100, { 255, 200, 255, 255 });

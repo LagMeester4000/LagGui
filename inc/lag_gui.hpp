@@ -17,10 +17,14 @@ struct Rect {
 	f32 height() const { return LGUI_ABS(bottom_right.y - top_left.y); }
 	f32 area() const { return LGUI_ABS(bottom_right.x - top_left.x) * LGUI_ABS(bottom_right.y - top_left.y); }
 	static Rect from_pos_size(v2 pos, v2 size) { return {pos, pos + size}; }
+	static Rect from_2_pos(v2 pos1, v2 pos2) { return {v2_min(pos1, pos2), v2_max(pos1, pos2)}; }
 	// Returns a rect of overlapping region of the two rects (order does not matter)
 	Rect clip(const Rect& other) const
 	{
-		return Rect{v2_max(top_left, other.top_left), v2_min(bottom_right, other.bottom_right)};
+		Rect ret = {v2_max(top_left, other.top_left), v2_min(bottom_right, other.bottom_right)};
+		ret.bottom_right.x = ret.bottom_right.x < ret.top_left.x ? ret.top_left.x : ret.bottom_right.x;
+		ret.bottom_right.y = ret.bottom_right.y < ret.top_left.y ? ret.top_left.y : ret.bottom_right.y;
+		return ret;
 	}
 
 	v2 top_right() const { return {bottom_right.x, top_left.y}; }
@@ -54,7 +58,7 @@ struct Rect {
 		case -1: pos.y = top_left.y; break;
 		case 0: pos.y = top_left.y + (bottom_right.y - top_left.y) / 2.f - size.y / 2.f; break;
 		case 1: pos.y = bottom_right.y - size.y; break;
-		default: LGUI_TRAP("Invalid horizontal value used");
+		default: LGUI_TRAP("Invalid vertical value used");
 		}
 
 		return {pos, pos + size};
@@ -276,6 +280,43 @@ struct Style {
 	f32 line_height() const { return default_font->height + line_padding * 2.f; }
 };
 
+struct Layout {
+	// Required if the layout has retained state
+	ID id;
+
+	bool is_horizontal;
+	bool reverse;
+
+	// Minimum size on the axis (horizontal or vertical) in pixels
+	f32 min_line_size;
+	// The space between elements on the axis
+	f32 spacing;
+	// The space between elements on the cross axis, used for same_line elements
+	f32 cross_spacing;
+
+	// Alignment within the line
+	// -1 = min, 0 = center, 1 = max
+	i8 h_align;
+	i8 v_align;
+
+	// The position that the layout starts at
+	// If the layout is reverse, this value will be at the opposite side of the rect
+	v2 start;
+	// Size of the layout on the cross axis (horizontal axis if vertical)
+	f32 cross_axis_size;
+	// Cursor position on the axis (horizontal or vertical)
+	f32 cursor;
+
+	v2 max_size;
+
+	// Last allocated full width or height line, with a cut in it from the allocation
+	Rect prev_line;
+	// When true, use the previous line for the next element
+	bool same_line;
+
+	Rect allocate(v2 size);
+};
+
 struct Panel;
 
 const usize MAX_CLIP_RECT = 16;
@@ -456,8 +497,12 @@ struct Panel {
 	Rect rect;
 	Rect content;
 
+	v2 scroll_pos;
+
 	// Temp layouting
 	v2 draw_pos;
+	v2 start_draw_pos;
+	v2 end_draw_pos;
 
 	// Depth
 	Panel* order_next; // Towards the screen
@@ -517,9 +562,10 @@ struct Context {
 
 	// Input
 	Panel* overlap_panel;
-	ID overlap_id;
-	ID hover_id;
-	ID active_id;
+	ID overlap_id; // Used to find which element was last hovered at the end of the frame, to set hover_id
+	ID hover_id; // Element that the cursor hovers over
+	ID active_id; // Element that the mouse was pressed on (used for registering dragging and clicks)
+	ID selected_id; // Element selected (text edit)
 	v2 mouse_pressed_pos[3];
 	MouseState mouse_states[2];
 	bool mouse_dragging;
@@ -557,6 +603,9 @@ Context* create_context();
 void begin_frame(Context* context);
 void end_frame(Context* context);
 
+// To check if any ui is hovered over with the mouse
+bool is_anything_hovered(Context* context);
+
 ID get_id(Context* context, const char* string);
 ID get_id(Context* context, i32 i);
 ID get_id(Context* context, void* ptr);
@@ -570,6 +619,12 @@ void pop_style(Context* context);
 const Style& get_style(Context* context);
 void set_default_style(Context* context, const Style& style);
 
+bool begin_layout(Context* context, const Layout& layout);
+void end_layout(Context* context);
+bool layout_horizontal(Context* context, f32 height);
+bool layout_vertical(Context* context);
+void same_line(Context* context);
+
 Panel* get_panel(Context* context, ID id);
 Panel* get_current_panel(Context* context);
 bool begin_panel(Context* context, const char* name, Rect rect, PanelFlag flags);
@@ -582,11 +637,13 @@ RetainedData* get_retained_data(Context* context, ID id);
 
 v2 layout_next(Context* context);
 
-InputResult handle_element_input(Context* context, Rect rect, ID id, bool enable_drag = false);
+InputResult handle_element_input(Context* context, Rect rect, ID id, bool enable_drag = false, bool ignore_clip = false);
 bool mouse_pressed(Context* context, int button = 0);
 bool mouse_released(Context* context, int button = 0);
 bool mouse_down(Context* context, int button = 0);
 v2 mouse_pos(Context* context);
+
+void select_element(Context* context, ID id);
 
 
 
@@ -613,5 +670,13 @@ InputResult radio_button(Context* context, const char* name, int option, int* se
 InputResult drag_value(Context* context, const char* name, f32* value);
 bool collapse_header(Context* context, const char* name);
 void text(Context* context, const char* text, bool wrap = false);
+bool input_text(Context* context, char* buffer, usize buffer_size, bool wrap = false);
+
+
+
+// Debug
+
+void debug_menu(Context* context);
+
 
 }
