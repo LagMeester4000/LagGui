@@ -174,6 +174,19 @@ struct ColorU32 {
 	};
 };
 
+// Has enough space for count amount of vertices
+inline static bool has_vertex_space(Context* context, Painter* painter, usize vert_count)
+{
+	return painter->current_command.vertex_end + vert_count * VERTEX_SIZE_FLOATS <
+		context->draw_buffer.vertex_buffer_length;
+}
+
+// Has enough space for count amount of vertices
+inline static bool has_index_space(Context* context, Painter* painter, usize tri_count)
+{
+	return painter->current_command.index_end + tri_count < context->draw_buffer.index_buffer_length;
+}
+
 // Returns index
 inline static u32 push_vertex(Context* context, Painter* painter, v2 pos, v2 uv, ColorU32 color)
 {
@@ -232,6 +245,11 @@ ColorU32 color32_from_f32_color(Color c)
 
 void Painter::draw_rectangle(Context* context, v2 pos, v2 size, Color color, v2 uv1, v2 uv2)
 {
+	if (!has_vertex_space(context, this, 4) || !has_index_space(context, this, 2))
+	{
+		return;
+	}
+
 	ColorU32 color32 = color32_from_f32_color(color);
 	u32 vx1 = push_vertex(context, this, pos, uv1, color32);
 	u32 vx2 = push_vertex(context, this, pos + v2{size.x, 0.f}, {uv2.x, uv1.y}, color32);
@@ -251,6 +269,11 @@ void Painter::draw_rectangle(Context* context, v2 pos, v2 size, Color color)
 
 void Painter::draw_rectangle_gradient(Context* context, v2 pos, v2 size, Color c1, Color c2, Color c3, Color c4)
 {
+	if (!has_vertex_space(context, this, 4) || !has_index_space(context, this, 2))
+	{
+		return;
+	}
+
 	v2 uv = {0.9999f, 0.9999f};
 	ColorU32 color1 = color32_from_f32_color(c1);
 	ColorU32 color2 = color32_from_f32_color(c2);
@@ -277,7 +300,7 @@ void Painter::draw_rectangle(Context* context, Rect rect, Color color)
 	draw_rectangle(context, rect.top_left, rect.size(), color, corner, corner);
 }
 
-void Painter::draw_text(Context* context, Font* font, const char* text, v2 pos, f32 spacing, Color color)
+f32 Painter::draw_text(Context* context, Font* font, const char* text, v2 pos, f32 spacing, Color color)
 {
 	// Flooring the position to prevent weird rendering issues
 	pos = v2{floorf(pos.x), floorf(pos.y)};
@@ -296,9 +319,11 @@ void Painter::draw_text(Context* context, Font* font, const char* text, v2 pos, 
 		//x_off += glyph.size.x + spacing;
 		x_off += glyph.advance_x + spacing;
 	}
+
+	return x_off;
 }
 
-void Painter::draw_text(Context* context, Font* font, const char* text, usize text_length, v2 pos, f32 spacing, Color color)
+f32 Painter::draw_text(Context* context, Font* font, const char* text, usize text_length, v2 pos, f32 spacing, Color color)
 {
 	// Flooring the position to prevent weird rendering issues
 	pos = v2{floorf(pos.x), floorf(pos.y)};
@@ -313,6 +338,8 @@ void Painter::draw_text(Context* context, Font* font, const char* text, usize te
 		draw_rectangle(context, pos + v2{x_off, 0} + glyph.pos, glyph.size, color, glyph.uv1, glyph.uv2);
 		x_off += glyph.advance_x + spacing;
 	}
+
+	return x_off;
 }
 
 bool Painter::draw_text_fit(Context* context, Font* font, const char* text, Rect rect, f32 spacing, Color color, i8 h_align, i8 v_align)
@@ -322,7 +349,7 @@ bool Painter::draw_text_fit(Context* context, Font* font, const char* text, Rect
 	{
 		return true;
 	}
-	
+
 	f32 width = font->text_width(text, len, spacing);
 	if (width <= rect.width())
 	{
@@ -340,7 +367,7 @@ bool Painter::draw_text_fit(Context* context, Font* font, const char* text, Rect
 			// There is no space to even draw any dots
 			return false;
 		}
-		
+
 		usize fit_text_length = 0;
 		f32 fit_text_width = 0;
 		for (usize i = len - 1; i > 0; --i)
@@ -392,6 +419,11 @@ void Painter::end_triangle_strip()
 
 void Painter::add_strip_triangle(Context* context, v2 pos, Color color, v2 uv)
 {
+	if (!has_vertex_space(context, this, 1) || !has_index_space(context, this, 1))
+	{
+		return;
+	}
+
 	LGUI_ASSERT(triangle_strip_mode != TriangleStripMode_None, "We are not in a triangle strip");
 
 	u16 index = push_vertex(context, this, pos, uv, color32_from_f32_color(color));
@@ -467,6 +499,88 @@ void Painter::draw_circle(Context* context, v2 pos, f32 size, f32 t, Color color
 
 	end_convex_strip();
 }
+
+void Painter::draw_round_corner(Context* context, v2 pos, v2 size, bool is_right, bool is_bottom, Color color)
+{
+	begin_convex_strip();
+
+	add_strip_triangle(context, pos, color);
+
+	f32 detail = LGUI_MAX(size.x, size.y) / 3.f;
+	detail = LGUI_CLAMP(3.f, 15.f, detail);
+	detail = 1.f / (floorf(detail));
+
+	v2 mul = {
+		is_right ? 1.f : -1.f,
+		is_bottom ? 1.f : -1.f
+	};
+	v2 move = {
+		is_right ? 0.f : -1.f,
+		is_bottom ? 0.f : -1.f
+	};
+
+	for (f32 f = 0.f; f < 1.f; f += detail)
+	{
+		v2 rot = (v2{sinf(f * 0.5f * PI), cosf(f * 0.5f * PI)} * mul + move);
+		add_strip_triangle(context, pos + rot * size, color);
+	}
+
+	v2 rot = (v2{sinf(0.5f * PI), cosf(0.5f * PI)} * mul + move);
+	add_strip_triangle(context, pos + rot * size, color);
+
+	end_convex_strip();
+}
+
+void Painter::draw_rounded_rectangle(Context* context, v2 pos, v2 size, f32 corner_size[4], Color color)
+{
+	f32 top_side_scale = (corner_size[0] + corner_size[1]) > 0.f ? LGUI_MIN(size.x / (corner_size[0] + corner_size[1]), 1.f) : 0.f;
+	f32 bottom_side_scale = (corner_size[2] + corner_size[3]) > 0.f ? LGUI_MIN(size.x / (corner_size[2] + corner_size[3]), 1.f) : 0.f;
+	f32 left_side_scale = (corner_size[0] + corner_size[2]) > 0.f ? LGUI_MIN(size.x / (corner_size[0] + corner_size[2]), 1.f) : 0.f;
+	f32 right_side_scale = (corner_size[1] + corner_size[3]) > 0.f ? LGUI_MIN(size.x / (corner_size[1] + corner_size[3]), 1.f) : 0.f;
+
+	f32 top_left = corner_size[0] * LGUI_MIN(top_side_scale, left_side_scale);
+	f32 top_right = corner_size[1] * LGUI_MIN(top_side_scale, right_side_scale);
+	f32 bottom_left = corner_size[2] * LGUI_MIN(bottom_side_scale, left_side_scale);
+	f32 bottom_right = corner_size[3] * LGUI_MIN(bottom_side_scale, right_side_scale);
+
+	bool top_side_flat = corner_size[0] == 0.f && corner_size[1] == 0.f;
+	bool bottom_side_flat = corner_size[2] == 0.f && corner_size[3] == 0.f;
+	bool left_side_flat = corner_size[0] == 0.f && corner_size[2] == 0.f;
+	bool right_side_flat = corner_size[1] == 0.f && corner_size[3] == 0.f;
+
+
+	if (top_side_flat && bottom_side_flat)
+	{
+		draw_rectangle(context, pos, size, color);
+	}
+
+	v2 top_left_v = pos;
+	v2 top_right_v = pos + v2{size.x - top_right, 0.f};
+	v2 bottom_left_v = pos + v2{0.f, size.y - bottom_left};
+	v2 bottom_right_v = pos + size - v2{bottom_left, bottom_left};
+
+	if (top_left)
+	{
+		draw_round_corner(context, top_left_v, {top_left, top_left}, false, false, color);
+	}
+	if (top_right)
+	{
+		draw_round_corner(context, top_right_v, {top_right, top_right}, true, false, color);
+	}
+	if (bottom_left)
+	{
+		draw_round_corner(context, bottom_left_v, {bottom_left, bottom_left}, false, true, color);
+	}
+	if (bottom_right)
+	{
+		draw_round_corner(context, bottom_right_v, { bottom_left, bottom_left }, true, true, color);
+	}
+}
+
+/*void Painter::draw_rounded_rectangle(Context* context, Rect rect, Color color)
+{
+
+}*/
 
 // TODO: remove raylib
 void rl_render(Context* context)

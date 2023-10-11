@@ -161,12 +161,14 @@ struct RetainedData {
 
 	// State
 	bool open;
+	v2 value_v2;
+	i32 value_int;
+	i32 value_int2;
 
 	void update_t_linear(bool hover, bool active, f32 dt, f32 duration = 0.25f);
 	void update_t_towards(bool hover, bool active, f32 dt, f32 rate = 10.f);
 };
 
-// TEMP
 struct Color {
 	f32 r, g, b, a;
 };
@@ -215,7 +217,6 @@ struct Font {
 	const char* name;
 	u32 name_hash;
 	f32 height;
-	//stbtt_fontinfo font_info;
 
 	Slice<Glyph> glyphs;
 
@@ -369,14 +370,21 @@ struct Painter {
 	void begin_convex_strip();
 	void end_convex_strip();
 
-	void draw_text(Context* context, Font* font, const char* text, v2 pos, f32 spacing, Color color);
-	void draw_text(Context* context, Font* font, const char* text, usize text_length, v2 pos, f32 spacing, Color color);
+	// Returns the width of the rendered text
+	f32 draw_text(Context* context, Font* font, const char* text, v2 pos, f32 spacing, Color color);
+	// Returns the width of the rendered text
+	f32 draw_text(Context* context, Font* font, const char* text, usize text_length, v2 pos, f32 spacing, Color color);
 	// Will attempt to draw text in the center of the provided rectangle, if it doesn't fit, it replaces text
 	//   with dots (...) to still make it fit
 	// Returns true when original text fits, returns false when it doesn't
 	bool draw_text_fit(Context* context, Font* font, const char* text, Rect rect, f32 spacing, Color color, i8 h_align = 0, i8 v_align = 0);
 
 	void draw_circle(Context* context, v2 pos, f32 size, f32 t, Color color);
+
+	void draw_round_corner(Context* context, v2 pos, v2 size, bool is_right, bool is_bottom, Color color);
+	// corner_size = [top_left, top_right, bottom_left, bottom_right]
+	void draw_rounded_rectangle(Context* context, v2 pos, v2 size, f32 corner_size[4], Color color);
+	void draw_rounded_rectangle(Context* context, Rect rect, f32 corner_size[4], Color color);
 };
 
 void rl_render(Context* context);
@@ -450,6 +458,7 @@ enum DockEntry {
 enum DockCommandType {
 	DockCommandType_DockInto,
 	DockCommandType_Remove,
+	DockCommandType_SelectTab,
 };
 
 // Docking command executed at the end of the frame
@@ -509,8 +518,8 @@ struct Panel {
 	Panel* order_prev;
 
 	// General list
-	Panel* next_panel;
-	Panel* prev_panel;
+	Panel* hash_next;
+	Panel* hash_prev;
 
 	// Docking
 	Dock* parent_dock; // Actually the root dock if this is the root panel
@@ -536,12 +545,10 @@ struct Panel {
 const usize ID_STACK_SIZE = 32;
 const usize PANEL_STACK_SIZE = 32;
 const usize STYLE_STACK_SIZE = 32;
+const usize LAYOUT_STACK_SIZE = 32;
+const usize PANEL_MAP_SIZE = 32;
 
 struct Context {
-	// List of all panels
-	Panel* first_panel;
-	Panel* last_panel;
-
 	// List of root panels sorted by depth/render order
 	Panel* first_depth_panel;
 	Panel* last_depth_panel;
@@ -593,6 +600,14 @@ struct Context {
 	Style style_stack[STYLE_STACK_SIZE];
 	u32 style_stack_top;
 
+	// Layout
+	Layout layout_stack[LAYOUT_STACK_SIZE];
+	u32 layout_stack_top;
+
+	// Panel lookup
+	// Maps ID to panel
+	Panel* panel_map[PANEL_MAP_SIZE];
+
 	// Atlas
 	Atlas atlas;
 };
@@ -621,8 +636,9 @@ void set_default_style(Context* context, const Style& style);
 
 bool begin_layout(Context* context, const Layout& layout);
 void end_layout(Context* context);
+Layout& get_layout(Context* context);
 bool layout_horizontal(Context* context, f32 height);
-bool layout_vertical(Context* context);
+bool layout_vertical(Context* context, f32 width);
 void same_line(Context* context);
 
 Panel* get_panel(Context* context, ID id);
@@ -644,21 +660,6 @@ bool mouse_down(Context* context, int button = 0);
 v2 mouse_pos(Context* context);
 
 void select_element(Context* context, ID id);
-
-
-
-// Rendering
-// Early rendering API, to be replaced with Painter
-
-void set_clip_rect(v2 start, v2 end);
-void reset_clip_rect();
-void push_clip_rect(Context* context, Rect rect);
-void pop_clip_rect(Context* context);
-
-void draw_triangle(v2 p1, v2 p2, v2 p3, Color color);
-void draw_triangle(v2 p1, v2 p2, v2 p3, Color c1, Color c2, Color c3);
-
-void draw_rectangle(v2 pos, v2 size, Color color);
 
 
 

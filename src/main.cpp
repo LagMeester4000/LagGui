@@ -227,8 +227,6 @@ extern void ast_update(lgui::Context* context);
 
 int main()
 {
-	printf("Hello world!\n");
-
 	const int screenWidth = 800;
 	const int screenHeight = 800;
 
@@ -262,6 +260,8 @@ int main()
 	int test_radio_value = 0;
 	float test_drag_value = 0;
 	float test_text_fit_value = 100;
+	char text_buffer[32]{};
+	size_t text_buffer_size = 32;
 
 	NoteArea area{};
 	area.scale = {1, 1};
@@ -284,6 +284,7 @@ int main()
 
 			lgui::begin_frame(context);
 
+			/* // Stress test
 			for (int i = 0; i < 30; ++i)
 			{
 				lgui::push_id(context, i);
@@ -293,6 +294,7 @@ int main()
 				}
 				lgui::pop_id(context);
 			}
+			*/
 
 			if (lgui::begin_panel(context, "My Window", lgui::Rect::from_pos_size(lgui::v2{100, 100}, lgui::v2{300, 300}), 0))
 			{
@@ -310,7 +312,11 @@ int main()
 
 				{
 					lgui::Painter& painter = lgui::get_current_panel(context)->get_painter();
-					//painter.draw_circle(context, {500, 500}, 100.f, 0.8, {0.f, 1.f, 1.f, 1.f});
+					/*if (lgui::layout_vertical(context, 300))
+					{
+						painter.draw_rectangle(context, lgui::get_layout(context).allocate({10, 10}), {1.f, 0.f, 0.f, 0.f});
+						lgui::end_layout(context);
+					}*/
 				}
 
 				lgui::end_panel(context);
@@ -333,6 +339,8 @@ int main()
 				lgui::radio_button(context, "Radio3", 3, &test_radio_value);
 
 				lgui::drag_value(context, "drag value", &test_drag_value);
+
+				lgui::input_text(context, text_buffer, text_buffer_size);
 
 				// draw_text_fit test
 				if (lgui::collapse_header(context, "draw_text_fit test"))
@@ -359,11 +367,11 @@ int main()
 				lgui::end_panel(context);
 			}
 
-			lgui::debug_menu(context);
+			//lgui::debug_menu(context);
 
 			//area_test(context, area);
 
-			ast_update(context);
+			//ast_update(context);
 
 			lgui::end_frame(context);
 

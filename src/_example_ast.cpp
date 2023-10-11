@@ -7,9 +7,16 @@
 #include "rlgl.h"
 #include <stdio.h>
 #include <vector>
+#include <initializer_list>
 
 #define GREY(f) {f, f, f, 1.f}
 #define COLOR_T(r, g, b, t) {(r) * (t), (g) * (t), (b) * (t), 1.f}
+
+#if _MSC_VER
+#define FORCE_INLINE __forceinline
+#else
+#define FORCE_INLINE
+#endif
 
 using v2 = lgui::v2;
 using Rect = lgui::Rect;
@@ -49,6 +56,14 @@ struct AstString {
 		}
 		--length;
 	}
+
+	bool operator==(const char* other) const
+	{
+		size_t len = strlen(other);
+		if (len != length) return false;
+		if (len == 0) return true;
+		return memcmp(buffer, other, len) == 0;
+	}
 };
 
 struct AstNode;
@@ -75,7 +90,35 @@ enum AstNodeType {
 	AstNodeType_VarDecl,
 	AstNodeType_IfStatement,
 	AstNodeType_ElseStatement,
+
+	AstNodeType_MAX,
 };
+
+struct AstLayoutElement {
+	bool is_child_node;
+	int index;
+};
+
+const int AST_NODE_LAYOUT_MAX = 8;
+struct AstNodeLayout {
+	bool initialized;
+	AstLayoutElement layout[AST_NODE_LAYOUT_MAX];
+	int layout_count;
+};
+
+AstNodeLayout create_layout(std::initializer_list<AstLayoutElement> list)
+{
+	LGUI_ASSERT(list.size() <= AST_NODE_LAYOUT_MAX, "Too many layout elements, increase array size");
+
+	AstNodeLayout ret{};
+	ret.initialized = true;
+	for (auto it : list)
+	{
+		ret.layout[ret.layout_count] = it;
+		++ret.layout_count;
+	}
+	return ret;
+}
 
 struct AstStringRef {
 	size_t length;
@@ -134,27 +177,15 @@ struct AstPoint {
 	int offset; // Text offset
 };
 
-// Possible cursor position
-// Regenerated every time the document is rendered
-struct CursorPosition {
-	CursorPosition* next;
-	CursorPosition* prev;
-	AstPoint point;
-	int line;
-	f32 x_off;
-};
-
 struct Cursor {
 	// Possible cursor positions:
 	// - Any CursorPosition node, which will be
 	//   1. In the text of an identifier or literal (number, string)
 	//   2. In an _emtpy_ list
 	//   3. On specific spots in a node
-	CursorPosition* _pos;
 	AstPoint pos;
 
 	bool selecting;
-	CursorPosition* _selection_start_pos;
 	AstPoint selection_start_pos;
 	// Selection between selection_start_point and pos where both points have the same parent
 	AstPoint selection_min;
@@ -183,9 +214,10 @@ struct Editor {
 	v2 draw_cursor_start;
 	v2 draw_cursor;
 	int tab_count;
+	Rect window_rect;
+	v2 char_size;
 
-	CursorPosition* first_cursor_position;
-	CursorPosition* last_cursor_position;
+	AstNodeLayout layouts[AstNodeType_MAX];
 };
 
 AstNode* allocate_node(Editor* editor)
@@ -199,19 +231,6 @@ AstNode* allocate_node(Editor* editor)
 	}
 
 	return editor->arena.allocate_one<AstNode>();
-}
-
-CursorPosition* make_cursor_position(Editor* editor, AstNode* node, int index)
-{
-	CursorPosition* ret =  editor->temp_arena->allocate_one<CursorPosition>();
-	ret->line = editor->line;
-	ret->x_off = editor->draw_cursor.x - editor->draw_cursor_start.x;
-	ret->point.node = node;
-	ret->point.offset = index;
-
-	LGUI_LL_APPEND_END(ret, prev, next, editor->first_cursor_position, editor->last_cursor_position);
-
-	return ret;
 }
 
 void free_node(Editor* editor, AstNode* node)
@@ -257,6 +276,10 @@ void add_node_after(AstNode* node, AstNode* new_node)
 	new_node->prev = node;
 	new_node->next = node->next;
 	new_node->parent = node->parent;
+	if (node->next)
+	{
+		node->next->prev = new_node;
+	}
 	node->next = new_node;
 	if (node->parent->last_child == node)
 	{
@@ -269,6 +292,10 @@ void add_node_before(AstNode* node, AstNode* new_node)
 	new_node->next = node;
 	new_node->prev = node->prev;
 	new_node->parent = node->parent;
+	if (node->prev)
+	{
+		node->prev->next = new_node;
+	}
 	node->prev = new_node;
 	if (node->parent->first_child == node)
 	{
@@ -278,11 +305,12 @@ void add_node_before(AstNode* node, AstNode* new_node)
 
 Editor* make_editor()
 {
-	lgui::Arena arena = lgui::Arena::from_memory(malloc(LGUI_MB(2)), LGUI_MB(2));
+	const int mbs = 10;
+	lgui::Arena arena = lgui::Arena::from_memory(malloc(LGUI_MB(mbs)), LGUI_MB(mbs));
 	Editor* ret = arena.allocate_one<Editor>();
 	ret->arena = arena;
-	ret->temp_arena_arr[0] = lgui::Arena::from_memory(malloc(LGUI_MB(2)), LGUI_MB(2));
-	ret->temp_arena_arr[1] = lgui::Arena::from_memory(malloc(LGUI_MB(2)), LGUI_MB(2));
+	ret->temp_arena_arr[0] = lgui::Arena::from_memory(malloc(LGUI_MB(mbs)), LGUI_MB(mbs));
+	ret->temp_arena_arr[1] = lgui::Arena::from_memory(malloc(LGUI_MB(mbs)), LGUI_MB(mbs));
 	ret->temp_arena = &ret->temp_arena_arr[0];
 
 	ret->root = ret->arena.allocate_one<AstNode>();
@@ -295,24 +323,72 @@ Editor* make_editor()
 	return ret;
 }
 
+void add_layout(Editor* editor, AstNodeType node, std::initializer_list<AstLayoutElement> list)
+{
+	editor->layouts[node] = create_layout(list);
+}
+
+FORCE_INLINE
+f32 ast_text_width(Editor* editor, size_t characters)
+{
+	return (f32)characters * editor->char_size.x;
+}
+
+FORCE_INLINE
+void draw_text_simple(Editor* editor, lgui::Context* context, const char* text, size_t length, lgui::Color color = {1, 1, 1, 1})
+{
+	f32 text_width = ast_text_width(editor, length);
+
+	if (editor->window_rect.overlap(editor->draw_cursor))
+	{
+		v2 pos = editor->draw_cursor;
+		lgui::Painter& painter = lgui::get_current_panel(context)->get_painter();
+		painter.draw_text(context, g_font, text, length, pos, 0, color);
+	}
+
+	editor->draw_cursor.x += text_width;
+}
+
+FORCE_INLINE
 Rect draw_text(Editor* editor, lgui::Context* context, const char* text, lgui::Color color = {1, 1, 1, 1})
 {
 	v2 pos = editor->draw_cursor;
-	f32 text_width = g_font->text_width(text, 0);
-	lgui::Painter& painter = lgui::get_current_panel(context)->get_painter();
-	painter.draw_text(context, g_font, text, pos, 0, color);
+	f32 text_width = ast_text_width(editor, strlen(text));
+	Rect ret = Rect::from_pos_size(pos, {text_width, editor->char_size.y});
+	/*Rect ret = {
+		pos,
+		{pos.x + text_width, pos.y + editor->char_size.y}
+	};*/
+
+	if (ret.overlap(editor->window_rect))
+	{
+		lgui::Painter& painter = lgui::get_current_panel(context)->get_painter();
+		painter.draw_text(context, g_font, text, pos, 0, color);
+	}
+
 	editor->draw_cursor.x += text_width;
-	return Rect::from_pos_size(pos, {text_width, g_font->height});
+	return ret;
 }
 
+FORCE_INLINE
 Rect draw_text(Editor* editor, lgui::Context* context, const AstString& text, lgui::Color color = {1, 1, 1, 1})
 {
 	v2 pos = editor->draw_cursor;
-	f32 text_width = g_font->text_width(text.buffer, text.length, 0);
-	lgui::Painter& painter = lgui::get_current_panel(context)->get_painter();
-	painter.draw_text(context, g_font, text.buffer, text.length, pos, 0, color);
+	f32 text_width = ast_text_width(editor, text.length);
+	Rect ret = Rect::from_pos_size(pos, {text_width, editor->char_size.y});
+	/*Rect ret = {
+		pos,
+		{pos.x + text_width, pos.y + editor->char_size.y}
+	};*/
+
+	if (ret.overlap(editor->window_rect))
+	{
+		lgui::Painter& painter = lgui::get_current_panel(context)->get_painter();
+		painter.draw_text(context, g_font, text.buffer, text.length, pos, 0, color);
+	}
+
 	editor->draw_cursor.x += text_width;
-	return Rect::from_pos_size(pos, {text_width, g_font->height});
+	return ret;
 }
 
 void new_line(Editor* editor)
@@ -347,7 +423,6 @@ AstNode* make_node_prefab(Editor* editor, AstNodeType type)
 	{
 		ret->list = true;
 		ret->list_element_type = AstNodeType_NameAndType;
-		ret->vertical = true;
 		ret->text.buffer[0] = '(';
 		ret->text.buffer[1] = ')';
 		ret->text.buffer[2] = ',';
@@ -413,6 +488,7 @@ AstNode* make_node_prefab(Editor* editor, AstNodeType type)
 	return ret;
 }
 
+// TODO: Can this be removed now that first_point exists?
 // Find the first point that the cursor can land on in a given node
 // To be used when a new node is inserted
 bool node_first_point(AstNode* node, AstPoint* point)
@@ -468,17 +544,313 @@ bool node_first_point(AstNode* node, AstPoint* point)
 	return false;
 }
 
+// Get the index of this child node in its parent
+// Returns -1 on error
+int get_child_index(AstNode* node)
+{
+	LGUI_ASSERT(node->parent, "Node has no parent");
+	int i = 0;
+	for (AstNode* it = node->parent->first_child; it; it = it->next)
+	{
+		if (it == node)
+		{
+			return i;
+		}
+		++i;
+	}
+	return -1;
+}
+
+// Can return nullptr
+AstNode* get_child_from_index(AstNode* node, int index)
+{
+	AstNode* child = node->first_child;
+	for (int i = 0; i < index; ++i)
+	{
+		if (!child->next)
+		{
+			return nullptr;
+		}
+		child = child->next;
+	}
+	return child;
+}
+
+AstPoint last_point(Editor* editor, AstNode* node)
+{
+	if (node->leaf)
+	{
+		return {node, (int)node->get_text().length};
+	}
+	else if (node->list)
+	{
+		if (node->list_empty())
+		{
+			return {node, 0};
+		}
+		else
+		{
+			// Assume normal order
+			return last_point(editor, node->last_child);
+		}
+	}
+	else
+	{
+		// Specific types that have a layout
+		const AstNodeLayout& layout = editor->layouts[node->type];
+		LGUI_ASSERT(layout.initialized && layout.layout_count > 0, "Need layout but it is not initialized");
+		const auto& l = layout.layout[layout.layout_count - 1];
+		if (l.is_child_node)
+		{
+			AstNode* child = get_child_from_index(node, l.index);
+			LGUI_ASSERT(child, "Required child from layout node but it doesn't exist");
+			return last_point(editor, child);
+		}
+		else
+		{
+			return {node, l.index};
+		}
+	}
+}
+
+AstPoint first_point(Editor* editor, AstNode* node)
+{
+	if (node->leaf)
+	{
+		return {node, 0};
+	}
+	else if (node->list)
+	{
+		if (node->list_empty())
+		{
+			return {node, 0};
+		}
+		else
+		{
+			// Assume normal order
+			// TODO: Go back if there is no selectable point in the first child, try the next child
+			return first_point(editor, node->first_child);
+		}
+	}
+	else
+	{
+		// Specific types that have a layout
+		const AstNodeLayout& layout = editor->layouts[node->type];
+		LGUI_ASSERT(layout.initialized && layout.layout_count > 0, "Need layout but it is not initialized");
+		const auto& l = layout.layout[0];
+		if (l.is_child_node)
+		{
+			AstNode* child = get_child_from_index(node, l.index);
+			LGUI_ASSERT(child, "Required child from layout node but it doesn't exist");
+			return first_point(editor, child);
+		}
+		else
+		{
+			return {node, l.index};
+		}
+	}
+}
+
+AstPoint _next_point(Editor* editor, AstPoint point, AstNode* node)
+{
+	if (node->leaf)
+	{
+		if (point.offset < point.node->get_text().length)
+		{
+			return AstPoint{point.node, point.offset + 1};
+		}
+		else
+		{
+			if (!node->parent) return {nullptr, 0};
+			return _next_point(editor, point, point.node->parent);
+		}
+	}
+	else if (node->list)
+	{
+		if (node == point.node)
+		{
+			if (!node->parent) return {nullptr, 0};
+			return _next_point(editor, point, point.node->parent);
+		}
+
+		// Assume normal order, other orders can be implemented later
+		if (point.node->next)
+		{
+			//return AstPoint{point.node->next, 0};
+			AstPoint ret = first_point(editor, point.node->next);
+			if (ret.node)
+			{
+				return ret;
+			}
+		}
+
+		if (!node->parent) return {nullptr, 0};
+		return _next_point(editor, {node, 0}, node->parent);
+	}
+	else
+	{
+		// Specific types that have a layout
+		const AstNodeLayout& layout = editor->layouts[node->type];
+		LGUI_ASSERT(layout.initialized, "Need layout but it is not initialized");
+
+		bool do_check_offset = (node == point.node);
+
+		// Check child node layouts
+		int point_index = -1;
+		if (node != point.node)
+		{
+			point_index = get_child_index(point.node);
+			LGUI_ASSERT(point_index != -1, "Failed to find child index");
+		}
+
+		int i = 0;
+		for (; i < layout.layout_count; ++i)
+		{
+			auto& it = layout.layout[i];
+			if ((!it.is_child_node && do_check_offset && it.index == point.offset) ||
+				(it.is_child_node && it.index == point_index))
+			{
+				break;
+			}
+		}
+
+		if (i + 1 >= layout.layout_count)
+		{
+			if (!node->parent) return {nullptr, 0};
+			return _next_point(editor, {node, 0}, node->parent);
+		}
+		else
+		{
+			auto& l = layout.layout[i + 1];
+			if (l.is_child_node)
+			{
+				AstNode* child = get_child_from_index(node, l.index);
+				return first_point(editor, child);
+			}
+			else
+			{
+				return {node, l.index};
+			}
+		}
+	}
+
+	return {nullptr, 0};
+}
+
+AstPoint next_point(Editor* editor, AstPoint point)
+{
+	if (point.node == nullptr || !point.node->parent)
+	{
+		return point;
+	}
+	AstPoint ret = _next_point(editor, point, point.node);
+	if (ret.node)
+	{
+		return ret;
+	}
+	return point;
+}
+
+AstPoint _prev_point(Editor* editor, AstPoint point, AstNode* node)
+{
+	if (node->leaf)
+	{
+		if (point.offset > 0)
+		{
+			return AstPoint{point.node, point.offset - 1};
+		}
+		else
+		{
+			if (!node->parent) return {nullptr, 0};
+			return _prev_point(editor, point, point.node->parent);
+		}
+	}
+	else if (node->list)
+	{
+		if (node == point.node)
+		{
+			if (!node->parent) return {nullptr, 0};
+			return _prev_point(editor, point, point.node->parent);
+		}
+
+		// Assume normal order, other orders can be implemented later
+		if (point.node->prev)
+		{
+			AstPoint ret = last_point(editor, point.node->prev);
+			if (ret.node)
+			{
+				return ret;
+			}
+		}
+
+		if (!node->parent) return {nullptr, 0};
+		return _prev_point(editor, {node, 0}, node->parent);
+	}
+	else
+	{
+		// Specific types that have a layout
+		const AstNodeLayout& layout = editor->layouts[node->type];
+		LGUI_ASSERT(layout.initialized && layout.layout_count > 0, "Need layout but it is not initialized");
+
+		bool do_check_offset = (node == point.node);
+
+		// Check child node layouts
+		int point_index = -1;
+		if (node != point.node)
+		{
+			point_index = get_child_index(point.node);
+			LGUI_ASSERT(point_index != -1, "Failed to find child index");
+		}
+
+		int i = layout.layout_count - 1;
+		for (; i >= 0; --i)
+		{
+			auto& it = layout.layout[i];
+			if ((!it.is_child_node && do_check_offset && it.index == point.offset) ||
+				(it.is_child_node && it.index == point_index))
+			{
+				break;
+			}
+		}
+
+		if (i - 1 < 0)
+		{
+			if (!node->parent) return {nullptr, 0};
+			return _prev_point(editor, {node, 0}, node->parent);
+		}
+		else
+		{
+			auto& l = layout.layout[i - 1];
+			if (l.is_child_node)
+			{
+				AstNode* child = get_child_from_index(node, l.index);
+				return last_point(editor, child);
+			}
+			else
+			{
+				return {node, l.index};
+			}
+		}
+	}
+
+	return {nullptr, 0};
+}
+
+AstPoint prev_point(Editor* editor, AstPoint point)
+{
+	if (point.node == nullptr || !point.node->parent)
+	{
+		return point;
+	}
+	AstPoint ret = _prev_point(editor, point, point.node);
+	if (ret.node)
+	{
+		return ret;
+	}
+	return point;
+}
+
 const lgui::Color color_keyword = {1, 0.2, 0.2, 1};
-
-f32 char_width(Editor* editor)
-{
-	return g_font->get_glyph('0').advance_x;
-}
-
-f32 char_height(Editor* editor)
-{
-	return g_font->height;
-}
 
 void draw_cursor(Editor* editor, lgui::Context* context, v2 pos, bool horizontal = false)
 {
@@ -493,35 +865,26 @@ void draw_cursor(Editor* editor, lgui::Context* context, v2 pos, bool horizontal
 	}
 	else // Vertical
 	{
-		painter.draw_rectangle(context, Rect::from_pos_size(pos - v2{thick / 2.f, 0}, {thick, char_height(editor)}), color);
+		painter.draw_rectangle(context, Rect::from_pos_size(pos - v2{thick / 2.f, 0}, {thick, editor->char_size.y}), color);
 	}
 }
 
 // For nodes that can have their text editor (identifier, number, string)
 void update_node_text_edit(Editor* editor, lgui::Context* context, AstNode* node)
 {
-	CursorPosition* pos = make_cursor_position(editor, node, 0);
-
-	if (editor->cursor.pos.node == node)
-	{
-		editor->cursor._pos = pos;
-		editor->cursor.pos.node = pos->point.node;
-	}
-
-	if (context)
+	if (context && editor->window_rect.overlap(editor->draw_cursor))
 	{
 		Rect rect = draw_text(editor, context, node->get_text());
-		lgui::InputResult input = lgui::handle_element_input(context, rect, lgui::get_id(context, 1), false);
+		lgui::InputResult input = lgui::handle_element_input(context, rect, lgui::get_id(context, node), false);
 		if (input.clicked)
 		{
 			// TODO: Select specific character index
-			editor->cursor._pos = pos;
-			editor->cursor.pos = pos->point;
+			editor->cursor.pos = {node, 0};
 		}
 
 		if (editor->cursor.pos.node == node)
 		{
-			draw_cursor(editor, context, rect.top_left + v2{(f32)editor->cursor.pos.offset * char_width(editor), 0});
+			draw_cursor(editor, context, rect.top_left + v2{(f32)editor->cursor.pos.offset * editor->char_size.x, 0});
 		}
 	}
 }
@@ -529,45 +892,24 @@ void update_node_text_edit(Editor* editor, lgui::Context* context, AstNode* node
 // Call this while updating a node to register a possible cursor position (replacement of AstNodeType_CursorPosition node)
 void update_cursor_position(Editor* editor, lgui::Context* context, AstNode* node, int index)
 {
-	CursorPosition* pos = make_cursor_position(editor, node, index);
-
-	// Assign new pos
-	if (editor->cursor.pos.node == node && editor->cursor.pos.offset == index)
-	{
-		editor->cursor._pos = pos;
-		editor->cursor.pos = pos->point;
-	}
-	if (editor->cursor.selecting && editor->cursor.selection_start_pos.node == node &&
-		editor->cursor.selection_start_pos.offset == index)
-	{
-		editor->cursor._selection_start_pos = pos;
-		editor->cursor.selection_start_pos = pos->point;
-	}
-
-	if (context)
+	if (context && editor->window_rect.overlap(editor->draw_cursor))
 	{
 		if (editor->cursor.pos.node == node && editor->cursor.pos.offset == index)
 		{
 			draw_cursor(editor, context, editor->draw_cursor, node->list && node->vertical);
 		}
 
-		v2 size = {char_width(editor), char_height(editor)};
+		v2 size = editor->char_size;
 		Rect c = Rect::from_pos_size(editor->draw_cursor - v2{size.x / 2.f, 0.f}, size);
 		if (lgui::handle_element_input(context, c, lgui::get_id(context, node)).clicked)
 		{
-			editor->cursor._pos = pos;
-			editor->cursor.pos = pos->point;
+			editor->cursor.pos = {node, 0};
 		}
 	}
 }
 
 void update_node(Editor* editor, lgui::Context* context, AstNode* node)
 {
-	if (context)
-	{
-		lgui::push_id(context, node);
-	}
-
 	if (node->list)
 	{
 		bool is_root = node->type == AstNodeType_TopLevel;
@@ -577,9 +919,7 @@ void update_node(Editor* editor, lgui::Context* context, AstNode* node)
 		{
 			if (node->text.buffer[0])
 			{
-				char t[2]{};
-				t[0] = node->text.buffer[0];
-				draw_text(editor, context, t);
+				draw_text_simple(editor, context, &node->text.buffer[0], 1);
 			}
 
 			if (node->vertical)
@@ -602,9 +942,7 @@ void update_node(Editor* editor, lgui::Context* context, AstNode* node)
 			// Separation character
 			if (node->text.buffer[2] && (node->vertical || it->next))
 			{
-				char t[2]{};
-				t[0] = node->text.buffer[2];
-				draw_text(editor, context, t);
+				draw_text_simple(editor, context, &node->text.buffer[2], 1);
 			}
 
 			if (node->vertical)
@@ -623,9 +961,7 @@ void update_node(Editor* editor, lgui::Context* context, AstNode* node)
 
 			if (node->text.buffer[1])
 			{
-				char t[2]{};
-				t[0] = node->text.buffer[1];
-				draw_text(editor, context, t);
+				draw_text_simple(editor, context, &node->text.buffer[1], 1);
 			}
 		}
 	}
@@ -650,19 +986,23 @@ void update_node(Editor* editor, lgui::Context* context, AstNode* node)
 			Rect expr_rect;
 			if (type->list_empty())
 			{
-				type_rect = draw_text(editor, context, " :");
+				//type_rect = draw_text(editor, context, " :");
+				draw_text_simple(editor, context, " :", 2);
 				update_node(editor, context, type);
-				expr_rect = draw_text(editor, context, "= ");
+				//expr_rect = draw_text(editor, context, "= ");
+				draw_text_simple(editor, context, "= ", 2);
 			}
 			else
 			{
-				type_rect = draw_text(editor, context, " : ");
+				//type_rect = draw_text(editor, context, " : ");
+				draw_text_simple(editor, context, " : ", 3);
 				update_node(editor, context, type);
-				expr_rect = draw_text(editor, context, " = ");
+				//expr_rect = draw_text(editor, context, " = ");
+				draw_text_simple(editor, context, " = ", 3);
 			}
 
-			lgui::InputResult input_type = lgui::handle_element_input(context, type_rect, lgui::get_id(context, 1));
-			lgui::InputResult input_expr = lgui::handle_element_input(context, expr_rect, lgui::get_id(context, 2));
+			//lgui::InputResult input_type = lgui::handle_element_input(context, type_rect, lgui::get_id(context, 1));
+			//lgui::InputResult input_expr = lgui::handle_element_input(context, expr_rect, lgui::get_id(context, 2));
 
 			update_node(editor, context, expr);
 		} break;
@@ -671,9 +1011,10 @@ void update_node(Editor* editor, lgui::Context* context, AstNode* node)
 			AstNode* expr = node->first_child;
 			AstNode* block = expr->next;
 			update_cursor_position(editor, context, node,  0);
-			Rect if_rect = draw_text(editor, context, "if ", color_keyword);
+			//Rect if_rect = draw_text(editor, context, "if ", color_keyword);
+			draw_text_simple(editor, context, "if ", 3, color_keyword);
 			update_node(editor, context, expr);
-			draw_text(editor, context, " ");
+			draw_text_simple(editor, context, " ", 1);
 			update_node(editor, context, block);
 			update_cursor_position(editor, context, node,  1);
 		} break;
@@ -710,7 +1051,6 @@ void update_node(Editor* editor, lgui::Context* context, AstNode* node)
 			new_line(editor);
 			update_node(editor, context, block);
 			update_cursor_position(editor, context, node,  1);
-			new_line(editor);
 		} break;
 		case AstNodeType_StructDecl:
 		{
@@ -728,11 +1068,6 @@ void update_node(Editor* editor, lgui::Context* context, AstNode* node)
 		} break;
 
 		}
-	}
-
-	if (context)
-	{
-		lgui::pop_id(context);
 	}
 }
 
@@ -785,15 +1120,19 @@ bool is_node_emtpy(AstNode* node)
 		return false;
 	}
 
-	for (AstNode* it = node->first_child; it; it = it->next)
+	if (!node->link && !node->leaf)
 	{
-		if (!is_node_emtpy(it))
+		for (AstNode* it = node->first_child; it; it = it->next)
 		{
-			return false;
+			if (!is_node_emtpy(it))
+			{
+				return false;
+			}
 		}
+		return true;
 	}
 
-	return true;
+	return false;
 }
 
 // Also true when node is parent
@@ -814,15 +1153,8 @@ bool node_has_parent(AstNode* node, AstNode* parent)
 bool input_backspace(Editor* editor)
 {
 	AstPoint& pos = editor->cursor.pos;
-	CursorPosition*& _pos = editor->cursor._pos;
 
 	auto delete_move_left = [&]() {
-		if (!_pos)
-		{
-			// We need the cursor position to go backwards
-			return false;
-		}
-
 		// Check if node is emtpy and then delete it
 		AstNode* to_delete = node_find_first_parent_in_list(pos.node);
 		bool did_delete = false;
@@ -844,27 +1176,12 @@ bool input_backspace(Editor* editor)
 		if (to_delete_parent && to_delete_parent->list_empty())
 		{
 			// Return cursor to empty list
-			_pos = nullptr;
 			pos.node = to_delete_parent;
 			pos.offset = 0;
 		}
-		else if (_pos->prev)
+		else
 		{
-			// Return cursor to a previous position outside the removed node
-			_pos = _pos->prev; // Should I set this to nullptr?
-			if (did_delete)
-			{
-				while (_pos->prev && node_has_parent(_pos->point.node, to_delete))
-				{
-					_pos = _pos->prev;
-				}
-			}
-			pos = _pos->point;
-
-			if (pos.node->leaf)
-			{
-				pos.offset = pos.node->get_text().length;
-			}
+			pos = prev_point(editor, pos);
 		}
 
 		return true;
@@ -889,7 +1206,7 @@ bool input_backspace(Editor* editor)
 
 				if (pos.offset == 0)
 				{
-					if (!delete_move_left()) return false;
+					//if (!delete_move_left()) return false;
 				}
 			}
 		}
@@ -929,20 +1246,68 @@ void process_input_character(Editor* editor, int codepoint)
 			AstNode* new_node = make_node_prefab(editor, pos.node->list_element_type);
 			add_child(pos.node, new_node);
 
-			AstPoint first_point{};
-			if (node_first_point(new_node, &first_point))
+			AstPoint first_point_ = first_point(editor, new_node);
+			if (first_point_.node)
 			{
-				pos = first_point;
+				pos = first_point_;
 				if (new_node->leaf)
 				{
 					pos.node->pre_edit_text();
 					pos.node->text.insert(pos.offset, (char)codepoint);
 					++pos.offset;
-					editor->cursor._pos = nullptr;
 				}
 			}
 		}
 	}
+}
+
+AstNode* find_first_parent_in_vertical_list(AstNode* node)
+{
+	for (AstNode* it = node; it; it = it->parent)
+	{
+		if (it->parent && it->parent->list && it->parent->vertical)
+		{
+			return it;
+		}
+	}
+	return nullptr;
+}
+
+// Can return nullptr
+AstNode* find_next_enter_line(Editor* editor, AstNode* node)
+{
+	if ((node->list_empty() && node->vertical) ||
+		(node->parent && node->parent->list && node->parent->vertical))
+	{
+		return node;
+	}
+
+	// This is a bit lazy, replace it with the layout solution
+
+	if (node->first_child)
+	{
+		AstNode* ret = find_next_enter_line(editor, node->first_child);
+		if (ret)
+		{
+			return ret;
+		}
+	}
+
+	for (AstNode* it = node->next; it; it = it->next)
+	{
+		AstNode* ret = find_next_enter_line(editor, it);
+		if (ret)
+		{
+			return ret;
+		}
+	}
+
+	if (node->parent && node->parent->next)
+	{
+		return find_next_enter_line(editor, node->parent->next);
+	}
+
+	return nullptr;
 }
 
 void update_editor(Editor* editor, lgui::Context* context)
@@ -952,43 +1317,15 @@ void update_editor(Editor* editor, lgui::Context* context)
 		// Input
 		{
 			AstPoint& pos = editor->cursor.pos;
-			CursorPosition*& _pos = editor->cursor._pos;
 
 			if (IsKeyPressed(KEY_LEFT))
 			{
-				if (pos.node && pos.node->leaf && pos.offset > 0)
-				{
-					--pos.offset;
-				}
-				else if (_pos && _pos->prev)
-				{
-					_pos = _pos->prev;
-					pos = _pos->point;
-
-					if (pos.node->leaf)
-					{
-						size_t length = pos.node->get_text().length;
-						pos.offset = length;
-					}
-				}
+				pos = prev_point(editor, pos);
 			}
 
 			if (IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_TAB))
 			{
-				if (pos.node && pos.node->leaf && pos.offset < pos.node->get_text().length)
-				{
-					++pos.offset;
-				}
-				else if (_pos && _pos->next)
-				{
-					_pos = _pos->next;
-					pos = _pos->point;
-
-					if (pos.node->leaf)
-					{
-						pos.offset = 0;
-					}
-				}
+				pos = next_point(editor, pos);
 			}
 
 			if (IsKeyPressed(KEY_UP))
@@ -998,6 +1335,84 @@ void update_editor(Editor* editor, lgui::Context* context)
 			if (IsKeyPressed(KEY_BACKSPACE))
 			{
 				input_backspace(editor);
+			}
+
+			if (IsKeyPressed(KEY_SPACE))
+			{
+				if (pos.node && pos.node->leaf)
+				{
+					if (pos.node->type == AstNodeType_EmptyStatement)
+					{
+						AstNode* empty_statement = pos.node;
+						const AstString& text = pos.node->get_text();
+
+						if (text == "if")
+						{
+							AstNode* new_node = make_node_prefab(editor, AstNodeType_IfStatement);
+							add_node_after(empty_statement, new_node);
+							remove_node(empty_statement);
+							pos = first_point(editor, new_node);
+							pos = next_point(editor, pos);
+						}
+						else if (text == "else")
+						{
+							AstNode* new_node = make_node_prefab(editor, AstNodeType_ElseStatement);
+							add_node_after(empty_statement, new_node);
+							remove_node(empty_statement);
+							pos = first_point(editor, new_node);
+							pos = next_point(editor, pos);
+						}
+						else if (text == "var")
+						{
+							AstNode* new_node = make_node_prefab(editor, AstNodeType_VarDecl);
+							add_node_after(empty_statement, new_node);
+							remove_node(empty_statement);
+							pos = first_point(editor, new_node);
+							pos = next_point(editor, pos);
+						}
+						else if (text == "func")
+						{
+							AstNode* new_node = make_node_prefab(editor, AstNodeType_FunctionDecl);
+							add_node_after(empty_statement, new_node);
+							remove_node(empty_statement);
+							pos = first_point(editor, new_node);
+							pos = next_point(editor, pos);
+						}
+						else if (text == "")
+						{
+							AstNode* new_node = make_node_prefab(editor, AstNodeType_Expr);
+							add_node_after(empty_statement, new_node);
+							remove_node(empty_statement);
+							pos = first_point(editor, new_node);
+						}
+
+					}
+				}
+			}
+
+			if (IsKeyPressed(KEY_ENTER))
+			{
+				if (pos.node)
+				{
+					AstNode* line = find_next_enter_line(editor, pos.node);
+					if (line)
+					{
+						if (line->list_empty() && line->vertical)
+						{
+							LGUI_ASSERT(line->list_element_type != AstNodeType_None, "List must have an element type");
+							AstNode* new_node = make_node_prefab(editor, line->list_element_type);
+							add_child(line, new_node);
+							pos = first_point(editor, new_node);
+						}
+						else
+						{
+							LGUI_ASSERT(line->parent->list_element_type != AstNodeType_None, "List must have an element type");
+							AstNode* new_node = make_node_prefab(editor, line->parent->list_element_type);
+							add_node_before(line, new_node);
+							pos = first_point(editor, new_node);
+						}
+					}
+				}
 			}
 		}
 
@@ -1010,11 +1425,15 @@ void update_editor(Editor* editor, lgui::Context* context)
 		editor->arena_swap = (editor->arena_swap + 1) % 2;
 		editor->temp_arena->reset();
 
-		editor->first_cursor_position = nullptr;
-		editor->last_cursor_position = nullptr;
+		lgui::Panel* panel = lgui::get_current_panel(context);
 		editor->line = 0;
-		editor->draw_cursor_start = lgui::get_current_panel(context)->draw_pos;
+		editor->draw_cursor_start = panel->draw_pos;
 		editor->draw_cursor = editor->draw_cursor_start;
+		editor->window_rect = panel->content;
+		editor->char_size = {
+			g_font->get_glyph('0').advance_x,
+			g_font->height
+		};
 		update_node(editor, context, editor->root);
 
 		lgui::end_panel(context);
@@ -1027,11 +1446,61 @@ void ast_init()
 {
 	g_editor = make_editor();
 
+	add_layout(g_editor, AstNodeType_IfStatement, {
+		{false, 0},
+		{true, 0},
+		{true, 1},
+		{false, 1}
+	});
+	add_layout(g_editor, AstNodeType_ElseStatement, {
+		{false, 0},
+		{false, 1},
+		{true, 0},
+		{false, 2}
+	});
+	add_layout(g_editor, AstNodeType_VarDecl, {
+		{false, 0},
+		{true, 0},
+		{true, 1},
+		{true, 2},
+	});
+	add_layout(g_editor, AstNodeType_NameAndType, {
+		{true, 0},
+		{true, 1},
+	});
+	add_layout(g_editor, AstNodeType_FunctionDecl, {
+		{false, 0},
+		{true, 0},
+		{true, 1},
+		{true, 2},
+		{true, 3},
+		{false, 1},
+	});
+	add_layout(g_editor, AstNodeType_StructDecl, {
+		{false, 0},
+		{true, 0},
+		{true, 1},
+		{false, 1},
+	});
+
 	AstNode* block = make_node_prefab(g_editor, AstNodeType_Block);
-	AstNode* var = make_node_prefab(g_editor, AstNodeType_VarDecl);
-	add_child(block, var);
-	AstNode* if_s = make_node_prefab(g_editor, AstNodeType_IfStatement);
-	add_child(block, if_s);
+
+	for (int i = 0; i < 1000; ++i)
+	{
+		//AstNode* var = make_node_prefab(g_editor, AstNodeType_VarDecl);
+		//add_child(block, var);
+		AstNode* if_s = make_node_prefab(g_editor, AstNodeType_IfStatement);
+		add_child(block, if_s);
+
+		const char* s = "hello";
+		for (int j = 0; j < strlen(s); ++j)
+		{
+			AstNode* e = make_node_prefab(g_editor, AstNodeType_EmptyStatement);
+			e->text.buffer[0] = s[j];
+			e->text.length = 1;
+			add_child(block, e);
+		}
+	}
 
 	g_editor->root = block;
 }

@@ -17,6 +17,7 @@ static void root_dock_update(Context* context, Dock* dock);
 static void dock_into(Context* context, Panel* from, Panel* into, DockEntry entry);
 static void push_panel(Context* context, Panel* panel);
 static void pop_panel(Context* context);
+static void _delete_old_panels(Context* context);
 
 static f32 lerp(f32 v1, f32 v2, f32 t)
 {
@@ -108,6 +109,14 @@ void end_frame(Context* context)
 		{
 			dock_into(context, command->panel1, command->panel2, command->entry);
 		} break;
+		case DockCommandType_SelectTab:
+		{
+			// TODO: This
+		} break;
+		case DockCommandType_Remove:
+		{
+			// TODO: This
+		} break;
 		}
 	}
 	context->first_dock_command = nullptr;
@@ -125,6 +134,8 @@ void end_frame(Context* context)
 
 	context->draw_buffer.vertex_buffer_top = 0;
 	context->draw_buffer.index_buffer_top = 0;
+
+	_delete_old_panels(context);
 }
 
 bool is_anything_hovered(Context* context)
@@ -658,7 +669,7 @@ static void root_dock_update(Context* context, Dock* dock)
 	// Handle input
 	{
 		// Panel resizing (the lines in-between panels)
-		
+
 		InputResult top = handle_element_input(context, panel_top, get_id(context, "__resize_top"), true);
 		InputResult bottom = handle_element_input(context, panel_bottom, get_id(context, "__resize_bottom"), true);
 		InputResult left = handle_element_input(context, panel_left, get_id(context, "__resize_left"), true);
@@ -704,78 +715,82 @@ static void check_docking(Context* context, Panel* panel, InputResult* input_res
 	{
 		Painter& painter = panel->get_painter();
 
-		for (Panel* it = context->first_panel; it; it = it->next_panel)
+		// Iterate over all existing panels
+		for (usize i = 0; i < PANEL_MAP_SIZE; ++i)
 		{
-			if (it == panel) continue;
-
-			Rect rect = it->rect;
-			if (!rect.overlap(panel->rect)) continue;
-
-			Rect center = rect.center_size(v2{50, 50});
-			Rect left = rect.get_left(50).center_size({50, 50});
-			Rect right = rect.get_right(50).center_size({50, 50});
-			Rect top = rect.get_top(50).center_size({50, 50});
-			Rect bottom = rect.get_bottom(50).center_size({50, 50});
-
-			Color c = {0, 0, 1, 1};
-			painter.draw_rectangle(context, center, c);
-			painter.draw_rectangle(context, left, c);
-			painter.draw_rectangle(context, right, c);
-			painter.draw_rectangle(context, top, c);
-			painter.draw_rectangle(context, bottom, c);
-
-			if (input_result->released)
+			for (Panel* it = context->panel_map[i]; it; it = it->hash_next)
 			{
-				if (center.overlap(mouse_pos(context)))
+				if (it == panel) continue;
+
+				Rect rect = it->rect;
+				if (!rect.overlap(panel->rect)) continue;
+
+				Rect center = rect.center_size(v2{50, 50});
+				Rect left = rect.get_left(50).center_size({50, 50});
+				Rect right = rect.get_right(50).center_size({50, 50});
+				Rect top = rect.get_top(50).center_size({50, 50});
+				Rect bottom = rect.get_bottom(50).center_size({50, 50});
+
+				Color c = {0, 0, 1, 1};
+				painter.draw_rectangle(context, center, c);
+				painter.draw_rectangle(context, left, c);
+				painter.draw_rectangle(context, right, c);
+				painter.draw_rectangle(context, top, c);
+				painter.draw_rectangle(context, bottom, c);
+
+				if (input_result->released)
 				{
-					//dock_into(context, panel, it, DockEntry_Into);
-					DockCommand command{};
-					command.type = DockCommandType_DockInto;
-					command.panel1 = panel;
-					command.panel2 = it;
-					command.entry = DockEntry_Into;
-					push_dock_command(context, command);
-					return;
-				}
-				else if (left.overlap(mouse_pos(context)))
-				{
-					DockCommand command{};
-					command.type = DockCommandType_DockInto;
-					command.panel1 = panel;
-					command.panel2 = it;
-					command.entry = DockEntry_Left;
-					push_dock_command(context, command);
-					return;
-				}
-				else if (right.overlap(mouse_pos(context)))
-				{
-					DockCommand command{};
-					command.type = DockCommandType_DockInto;
-					command.panel1 = panel;
-					command.panel2 = it;
-					command.entry = DockEntry_Right;
-					push_dock_command(context, command);
-					return;
-				}
-				else if (top.overlap(mouse_pos(context)))
-				{
-					DockCommand command{};
-					command.type = DockCommandType_DockInto;
-					command.panel1 = panel;
-					command.panel2 = it;
-					command.entry = DockEntry_Top;
-					push_dock_command(context, command);
-					return;
-				}
-				else if (bottom.overlap(mouse_pos(context)))
-				{
-					DockCommand command{};
-					command.type = DockCommandType_DockInto;
-					command.panel1 = panel;
-					command.panel2 = it;
-					command.entry = DockEntry_Bottom;
-					push_dock_command(context, command);
-					return;
+					if (center.overlap(mouse_pos(context)))
+					{
+						//dock_into(context, panel, it, DockEntry_Into);
+						DockCommand command{};
+						command.type = DockCommandType_DockInto;
+						command.panel1 = panel;
+						command.panel2 = it;
+						command.entry = DockEntry_Into;
+						push_dock_command(context, command);
+						return;
+					}
+					else if (left.overlap(mouse_pos(context)))
+					{
+						DockCommand command{};
+						command.type = DockCommandType_DockInto;
+						command.panel1 = panel;
+						command.panel2 = it;
+						command.entry = DockEntry_Left;
+						push_dock_command(context, command);
+						return;
+					}
+					else if (right.overlap(mouse_pos(context)))
+					{
+						DockCommand command{};
+						command.type = DockCommandType_DockInto;
+						command.panel1 = panel;
+						command.panel2 = it;
+						command.entry = DockEntry_Right;
+						push_dock_command(context, command);
+						return;
+					}
+					else if (top.overlap(mouse_pos(context)))
+					{
+						DockCommand command{};
+						command.type = DockCommandType_DockInto;
+						command.panel1 = panel;
+						command.panel2 = it;
+						command.entry = DockEntry_Top;
+						push_dock_command(context, command);
+						return;
+					}
+					else if (bottom.overlap(mouse_pos(context)))
+					{
+						DockCommand command{};
+						command.type = DockCommandType_DockInto;
+						command.panel1 = panel;
+						command.panel2 = it;
+						command.entry = DockEntry_Bottom;
+						push_dock_command(context, command);
+						return;
+					}
 				}
 			}
 		}
@@ -812,33 +827,129 @@ Panel* get_current_panel(Context* context)
 
 static Panel* _get_or_create_panel(Context* context, ID id)
 {
-	for (Panel* panel = context->first_panel; panel; panel = panel->next_panel)
+	// Try to find panel
+	for (Panel* it = context->panel_map[id % PANEL_MAP_SIZE]; it; it = it->hash_next)
 	{
-		if (panel->id == id) return panel;
+		if (it->id == id) return it;
 	}
 
-	// TODO: Use first_free_panel
-	Panel* ret = context->arena.allocate_one<Panel>();
-	ret->id = id;
-
-	LGUI_LL_APPEND_END(ret, prev_panel, next_panel, context->first_panel, context->last_panel);
-
-	// TODO: Maybe not all panels should go in the depth list?
-	if (!context->first_depth_panel)
+	// Create new panel object
+	Panel* ret{};
+	if (context->first_free_panel)
 	{
-		LGUI_ASSERT(!context->last_depth_panel, "This shouldn't exist");
-		context->first_depth_panel = ret;
-		context->last_depth_panel = ret;
+		ret = context->first_free_panel;
+		context->first_free_panel = context->first_free_panel->order_next;
+		memset(ret, 0, sizeof(Panel));
 	}
 	else
 	{
-		LGUI_ASSERT(context->last_depth_panel, "This should exist");
-		ret->order_prev = context->last_depth_panel;
-		context->last_depth_panel->order_next = ret;
-		context->last_depth_panel = ret;
+		ret = context->arena.allocate_one<Panel>();
+	}
+	ret->id = id;
+
+	// Add new panel to panel hash map
+	{
+		Panel*& first = context->panel_map[id % PANEL_MAP_SIZE];
+		if (first)
+		{
+			first->hash_prev = ret;
+		}
+		ret->hash_next = first;
+		first = ret;
 	}
 
+	// Add panel on top of the depth panel list
+	LGUI_LL_APPEND_END(ret, order_prev, order_next, context->first_depth_panel, context->last_depth_panel);
+
 	return ret;
+}
+
+static void _delete_panel(Context* context, Panel* panel)
+{
+	// Remove docking
+	if (panel->is_docked())
+	{
+		// TODO: Add docking deletion code here
+	}
+
+	// Remove retained data
+	{
+		for (usize i = 0; i < RETAINED_TABLE_SIZE; ++i)
+		{
+			// Keep the already existing list structure when inserting them into the free list
+			RetainedData* bucket = panel->retained_data_lookup[i];
+			if (context->first_free_retained_data)
+			{
+				// Find last element in bucket, then append the current free list
+				// TODO: It would be nice if I didn't have to find the end pointer here, could be an optimization if needed
+				RetainedData* it = bucket;
+				while (it->next) { it = it->next; }
+				it->next = context->first_free_retained_data;
+			}
+			context->first_free_retained_data = bucket;
+		}
+	}
+
+	// Remove from panel hash map
+	{
+		Panel*& first = context->panel_map[panel->id % PANEL_MAP_SIZE];
+		if (panel->hash_prev)
+		{
+			panel->hash_prev->hash_next = panel->hash_next;
+		}
+		if (panel->hash_next)
+		{
+			panel->hash_next->hash_prev = panel->hash_prev;
+		}
+		if (first == panel)
+		{
+			first = panel->hash_next;
+		}
+	}
+
+	// Remove panel from depth list
+	LGUI_LL_REMOVE(panel, order_prev, order_next, context->first_depth_panel, context->last_depth_panel);
+
+	// Add to free list
+	if (context->first_free_panel)
+	{
+		// Use order pointer as free list pointer
+		panel->order_next = context->first_free_panel;
+		context->first_free_panel = panel;
+	}
+}
+
+struct ToDeletePanel {
+	ToDeletePanel* next;
+	Panel* panel;
+};
+
+static void _delete_old_panels(Context* context)
+{
+	ToDeletePanel* to_delete = nullptr;
+
+	auto current_frame = context->current_frame;
+	for (usize i = 0; i < PANEL_MAP_SIZE; ++i)
+	{
+		for (Panel* it = context->panel_map[i]; it; it = it->hash_next)
+		{
+			if (it->frame_last_updated != current_frame)
+			{
+				// Schedule panel to be deleted
+				ToDeletePanel* delete_node = context->temp_arena.allocate_one<ToDeletePanel>();
+				delete_node->panel = it;
+				delete_node->next = to_delete;
+				to_delete = delete_node;
+			}
+		}
+	}
+
+	// Perform scheduled deletion
+	for (ToDeletePanel* it = to_delete; it; it = it->next)
+	{
+		// TODO: Temporarily disabled because it causes docking windows to be deleted
+		//_delete_panel(context, it->panel);
+	}
 }
 
 // Interpolation that can be called every frame without a T:
@@ -891,7 +1002,7 @@ static void pop_panel(Context* context)
 
 static bool is_painter_updated(Context* context, Painter& painter)
 {
-	return	painter.frame_last_updated == context->current_frame;
+	return painter.frame_last_updated == context->current_frame;
 }
 
 bool begin_panel(Context* context, const char* name, Rect rect, PanelFlag flags)
@@ -947,7 +1058,7 @@ bool begin_panel(Context* context, const char* name, Rect rect, PanelFlag flags)
 	Painter& painter = panel->get_painter();
 	f32 line_height = style.line_height();
 	Rect window_whole = panel->rect;
-	
+
 	// Animate open/close
 	window_whole.bottom_right.y = lerp(window_whole.top_left.y + line_height + 2, window_whole.bottom_right.y, panel->open_anim);
 	Rect window_pad = window_whole.pad(1);
@@ -1078,7 +1189,7 @@ void end_panel(Context* context)
 		Rect scroll = scroll_base;
 		f32 scroll_per_pixel = rect.height() / scroll_size.y;
 		scroll.move({0, scroll_per_pixel * panel->scroll_pos.y});
-		
+
 		InputResult input = handle_element_input(context, scroll, get_id(context, "__scroll_y"), true);
 		if (input.dragging)
 		{
@@ -1218,7 +1329,8 @@ InputResult handle_element_input(Context* context, Rect rect, ID id, bool enable
 		{
 			ret.released = true;
 
-			if (context->active_id == id && !context->mouse_dragging)
+			if (context->active_id == id && context->hover_id == id &&
+				((enable_drag && !context->mouse_dragging) || (!enable_drag)))
 			{
 				ret.clicked = true;
 			}
@@ -1318,7 +1430,6 @@ InputResult button(Context* context, const char* name)
 {
 	v2 pos = layout_next(context);
 	v2 size = v2{50, 30};
-	Color color = Color{0, 1, 0, 1};
 	ID id = get_id(context, name);
 	RetainedData* retained = get_retained_data(context, id);
 	const Style& style = get_style(context);
@@ -1330,22 +1441,8 @@ InputResult button(Context* context, const char* name)
 	Rect rect = Rect::from_pos_size(pos, {text_width + 4, font->height});
 
 	InputResult input = handle_element_input(context, rect, id);
-	if (input.pressed)
-	{
-		color.b = 1;
-	}
-	else if (input.released)
-	{
-		color.r = 1;
-		color.b = 1;
-	}
-	else if (input.hover)
-	{
-		color.r = 1;
-	}
-
 	retained->update_t_towards(input.hover, input.down, 0.016666f);
-	color = lerp_color(lerp_color(style.button_background, style.button_background_hover, retained->hover_t), style.button_background_down, retained->active_t);
+	Color color = lerp_color(lerp_color(style.button_background, style.button_background_hover, retained->hover_t), style.button_background_down, retained->active_t);
 
 	// Rendering
 	Rect text_rect = rect.center_size({text_width, font->height});
@@ -1359,7 +1456,6 @@ InputResult checkbox(Context* context, const char* name, bool* value)
 {
 	v2 pos = layout_next(context);
 	v2 size = v2{50, 30};
-	Color color = Color{0, 1, 0, 1};
 	ID id = get_id(context, name);
 	RetainedData* retained = get_retained_data(context, id);
 	const Style& style = get_style(context);
@@ -1375,7 +1471,7 @@ InputResult checkbox(Context* context, const char* name, bool* value)
 	}
 
 	retained->update_t_towards(input.hover, *value, 0.016666f, 30);
-	color = lerp_color(style.button_background, style.button_background_hover, retained->hover_t);
+	Color color = lerp_color(style.button_background, style.button_background_hover, retained->hover_t);
 
 	// Rendering
 	Rect inner = rect.pad(1);
@@ -1392,7 +1488,6 @@ InputResult radio_button(Context* context, const char* name, int option, int* se
 {
 	v2 pos = layout_next(context);
 	v2 size = v2{50, 30};
-	Color color = Color{0, 1, 0, 1};
 	ID id = get_id(context, name);
 	RetainedData* retained = get_retained_data(context, id);
 	const Style& style = get_style(context);
@@ -1408,7 +1503,7 @@ InputResult radio_button(Context* context, const char* name, int option, int* se
 	}
 
 	retained->update_t_towards(input.hover, *selected == option, 0.016666f, 30);
-	color = lerp_color(style.button_background, style.button_background_hover, retained->hover_t);
+	Color color = lerp_color(style.button_background, style.button_background_hover, retained->hover_t);
 
 	// Rendering
 	Rect inner = rect.pad(1);
@@ -1425,7 +1520,6 @@ InputResult drag_value(Context* context, const char* name, f32* value)
 {
 	v2 pos = layout_next(context);
 	v2 size = v2{50, 30};
-	Color color = Color{0, 1, 0, 1};
 	ID id = get_id(context, name);
 	RetainedData* retained = get_retained_data(context, id);
 	const Style& style = get_style(context);
@@ -1447,7 +1541,7 @@ InputResult drag_value(Context* context, const char* name, f32* value)
 	}
 
 	retained->update_t_towards(input.hover, input.down, 0.016666f);
-	color = lerp_color(lerp_color(style.button_background, style.button_background_hover, retained->hover_t), style.button_background_down, retained->active_t);
+	Color color = lerp_color(lerp_color(style.button_background, style.button_background_hover, retained->hover_t), style.button_background_down, retained->active_t);
 
 	// Rendering
 	Rect text_rect = rect.center_size({text_width, font->height});
@@ -1494,7 +1588,7 @@ void text(Context* context, const char* text, bool wrap)
 {
 	const Style& style = get_style(context);
 	v2 pos = layout_next(context);
-	
+
 	if (wrap)
 	{
 		Panel* panel = get_current_panel(context);
@@ -1508,6 +1602,431 @@ void text(Context* context, const char* text, bool wrap)
 		Painter& painter = get_current_panel(context)->get_painter();
 		painter.draw_text(context, style.default_font, text, pos, 0, style.window_title_color);
 	}
+}
+
+static void memmove_safe(void* destination, usize destination_size, const void* source, usize source_size)
+{
+	usize min_size = LGUI_MIN(destination_size, source_size);
+	if (min_size > 0)
+	{
+		memmove(destination, source, min_size);
+	}
+}
+
+static void string_remove_range(char* buffer, usize buffer_size, usize* text_length, usize insert_pos,
+								usize insert_size)
+{
+
+}
+
+bool _input_text(Context* context, ID id, Rect rect, char* buffer, usize buffer_size, usize* text_length, bool wrap, f32 spacing = 0.f)
+{
+	const Style& style = get_style(context);
+	Font* font = style.default_font;
+	RetainedData* data = get_retained_data(context, id);
+
+	f32 outline_size = 1.f;
+	Color outline_color = {1.f, 1.f, 1.f, 1.f};
+	Color inside_color = {0.f, 0.f, 0.f, 1.f};
+	Color text_color = {1.f, 1.f, 1.f, 1.f};
+	Color selection_color = {0.3f, 1.f, 0.3f, 0.5f};
+	Color cursor_color = {0.f, 1.f, 0.f, 1.f};
+	f32 cursor_width = 2.f;
+
+	Rect inside = rect.pad(outline_size);
+
+	i32& cursor_index = data->value_int;
+	i32& drag_cursor_index = data->value_int2;
+	v2& camera_pos = data->value_v2;
+	v2 mouse = mouse_pos(context);
+	v2 relative_mouse_pos = mouse - inside.top_left;
+
+	cursor_index = LGUI_CLAMP(0, (i32)*text_length, cursor_index);
+	drag_cursor_index = LGUI_CLAMP(0, (i32)*text_length, drag_cursor_index);
+
+	InputResult input = handle_element_input(context, rect, id, true);
+
+	// Handle text input
+	if (input.hover) // TODO: Replace with "selected" id, which doesn't exist yet
+	{
+		// TODO: Relace with non-raylib functions
+		bool input_left = IsKeyPressed(KEY_LEFT);
+		bool input_right = IsKeyPressed(KEY_RIGHT);
+		bool input_up = IsKeyPressed(KEY_UP);
+		bool input_down = IsKeyPressed(KEY_DOWN);
+		bool input_backspace = IsKeyPressed(KEY_BACKSPACE);
+		bool input_shift = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
+		bool input_control = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+		bool input_copy = IsKeyPressed(KEY_C) && input_control;
+		bool input_paste = IsKeyPressed(KEY_V) && input_control;
+		auto get_clipboard_text = []() {
+			return GetClipboardText();
+		};
+		auto set_clipboard_text = [&](char* buffer, usize len) {
+			auto marker = context->temp_arena.make_marker();
+			char* temp_buffer = (char*)context->temp_arena.allocate_raw(len + 1);
+			memcpy(temp_buffer, buffer, len);
+			temp_buffer[len] = 0;
+			SetClipboardText(temp_buffer);
+		};
+
+		bool selecting = input_shift || input.dragging;
+
+		i32 max_index = LGUI_MIN(*text_length, buffer_size);
+		cursor_index = LGUI_CLAMP(0, max_index, cursor_index);
+		drag_cursor_index = LGUI_CLAMP(0, max_index, drag_cursor_index);
+
+		auto remove_range = [&](usize min, usize max) {
+			usize min_index = (usize)LGUI_MIN(min, max);
+			usize max_index = (usize)LGUI_MAX(min, max);
+			min_index = LGUI_MIN(min_index, *text_length);
+			max_index = LGUI_MIN(max_index, *text_length);
+
+			usize move_size = LGUI_MIN(*text_length - max_index, buffer_size - max_index);
+			if (move_size > 0)
+			{
+				memmove(&buffer[min_index], &buffer[max_index], move_size);
+			}
+
+			*text_length -= max_index - min_index;
+		};
+		auto remove_selection = [&]() {
+			usize min_index = (usize)LGUI_MIN(cursor_index, drag_cursor_index);
+			usize max_index = (usize)LGUI_MAX(cursor_index, drag_cursor_index);
+
+			remove_range(min_index, max_index);
+
+			cursor_index = min_index;
+			drag_cursor_index = min_index;
+		};
+		auto has_selection = [&]() { return cursor_index != drag_cursor_index; };
+		auto is_whitespace = [](char c) { return c == ' ' || c == '\t' || c == '\n'; };
+		auto find_space_index_left = [&](usize index) -> usize {
+			if (index == 0)
+			{
+				return 0;
+			}
+
+			char prev_char = buffer[index - 1];
+			if (is_whitespace(prev_char))
+			{
+				// Find first non-space
+				for (usize i = index - 1; i > 0; --i)
+				{
+					if (!is_whitespace(buffer[i]))
+					{
+						return i + 1;
+					}
+				}
+				return 0;
+			}
+			else
+			{
+				// Find first space
+				for (usize i = index - 1; i > 0; --i)
+				{
+					if (is_whitespace(buffer[i]))
+					{
+						return i + 1;
+					}
+				}
+				return 0;
+			}
+		};
+		auto find_space_index_right = [&](usize index) -> usize {
+			usize max = LGUI_MIN(buffer_size, *text_length);
+			if (index >= max)
+			{
+				return max;
+			}
+
+			char next_char = buffer[index];
+			if (is_whitespace(next_char))
+			{
+				// Find first non-space
+				for (usize i = index; i < max; ++i)
+				{
+					if (!is_whitespace(buffer[i]))
+					{
+						return i;
+					}
+				}
+				return max;
+			}
+			else
+			{
+				// Find first space
+				for (usize i = index; i < max; ++i)
+				{
+					if (is_whitespace(buffer[i]))
+					{
+						return i;
+					}
+				}
+				return max;
+			}
+		};
+
+
+		while (int codepoint = GetCharPressed())
+		{
+			if (has_selection())
+			{
+				remove_selection();
+			}
+
+			if (cursor_index < buffer_size)
+			{
+				usize insert_index = (usize)cursor_index;
+				cursor_index = cursor_index + 1;
+				if (cursor_index > buffer_size)
+				{
+					cursor_index = buffer_size;
+				}
+				drag_cursor_index = cursor_index;
+				if (*text_length < buffer_size)
+				{
+					++*text_length;
+				}
+
+				if (cursor_index < *text_length)
+				{
+					LGUI_ASSERT(*text_length <= buffer_size, "Text length out of bounds of buffer");
+					memmove_safe(&buffer[insert_index + 1], *text_length - (insert_index + 1), &buffer[insert_index], buffer_size - (insert_index));
+				}
+
+				buffer[insert_index] = (char)codepoint;
+			}
+		}
+
+		if (input_paste)
+		{
+			if (has_selection())
+			{
+				remove_selection();
+			}
+
+			const char* clipboard = get_clipboard_text();
+			usize clipboard_len = strlen(clipboard);
+
+			if (cursor_index < *text_length)
+			{
+				LGUI_ASSERT(*text_length <= buffer_size, "Text length out of bounds of buffer");
+				memmove_safe(&buffer[cursor_index + clipboard_len], *text_length - (cursor_index + clipboard_len), &buffer[cursor_index], buffer_size - (cursor_index));
+			}
+
+			memmove_safe(&buffer[cursor_index], buffer_size - (cursor_index), clipboard, clipboard_len);
+
+			*text_length = LGUI_CLAMP(0, (i32)buffer_size, *text_length + (i32)clipboard_len);
+			cursor_index = LGUI_CLAMP(0, (i32)*text_length, cursor_index + (i32)clipboard_len);
+			drag_cursor_index = cursor_index;
+
+			// TODO: Complete this (and copy and cut)
+		}
+
+		if (input_backspace)
+		{
+			if (has_selection())
+			{
+				remove_selection();
+			}
+			else if (input_control && cursor_index > 0)
+			{
+				usize min_index = find_space_index_left(cursor_index);
+
+				remove_range(min_index, cursor_index);
+
+				cursor_index = min_index;
+				drag_cursor_index = min_index;
+			}
+			else if (cursor_index > 0)
+			{
+				cursor_index = cursor_index - 1;
+				usize remove_index = cursor_index;
+				if (cursor_index > buffer_size)
+				{
+					cursor_index = buffer_size;
+				}
+				drag_cursor_index = cursor_index;
+				if (*text_length > 0)
+				{
+					--*text_length;
+				}
+
+				usize move_size = LGUI_MIN(*text_length - remove_index, buffer_size - remove_index);
+				if (move_size > 0)
+				{
+					memmove(&buffer[remove_index], &buffer[remove_index + 1], move_size);
+				}
+			}
+		}
+
+		if (input_left && cursor_index > 0)
+		{
+			if (input_control)
+			{
+				cursor_index = (i32)find_space_index_left((usize)cursor_index);
+			}
+			else
+			{
+				--cursor_index;
+			}
+
+			if (!selecting)
+			{
+				drag_cursor_index = cursor_index;
+			}
+		}
+		if (input_right && cursor_index < max_index)
+		{
+			if (input_control)
+			{
+				cursor_index = (i32)find_space_index_right((usize)cursor_index);
+			}
+			else
+			{
+				++cursor_index;
+			}
+
+			if (!selecting)
+			{
+				drag_cursor_index = cursor_index;
+			}
+		}
+	}
+
+	// Render
+	{
+		Painter& painter = get_current_panel(context)->get_painter();
+
+		painter.draw_rectangle(context, rect, outline_color);
+		painter.draw_rectangle(context, inside, inside_color);
+
+		painter.push_clip_rect(context, inside);
+
+		// Flooring the position to prevent weird rendering issues
+		v2 pos = inside.top_left - camera_pos;
+		pos = v2{floorf(pos.x), floorf(pos.y)};
+		v2 pos_start = pos;
+		v2 cursor_draw_pos = pos;
+		v2 drag_cursor_draw_pos = pos;
+
+		if (false)
+		{
+			// Multi-line
+
+			for (usize i = 0; i < *text_length; ++i)
+			{
+				bool endline = false;
+				usize word_end = i;
+				for (; word_end < *text_length; ++word_end)
+				{
+					char c = buffer[word_end];
+					if (c == '\n')
+					{
+						endline = true;
+					}
+					if (c == ' ')
+					{
+						break;
+					}
+				}
+
+				f32 width = font->text_width(&buffer[i], word_end - i, 0);
+				if (pos.x + width > inside.bottom_right.x)
+				{
+					pos.x = pos_start.x;
+					pos.y += font->height;
+				}
+
+				//pos.x += painter.draw_text(context, font, )
+
+			}
+		}
+		else
+		{
+			f32 x_off = 0.f;
+			f32 prev_input_rect_x = 0.f;
+
+			auto fn = [&](usize index, f32 glyph_advance_x)
+			{
+				f32 input_x_off = x_off + (glyph_advance_x + spacing) / 2.f;
+				Rect input_char_rect = Rect::from_2_pos(
+					{pos.x + prev_input_rect_x, pos.y},
+					{pos.x + input_x_off, pos.y + font->height}
+				);
+				prev_input_rect_x = input_x_off;
+				// DEBUG: painter.draw_rectangle(context, input_char_rect, {0.05f * x_off, 0.5f, 1.f - 0.05f * x_off, 0.3f});
+
+				if (input.pressed && input_char_rect.overlap(mouse))
+				{
+					cursor_index = index;
+					drag_cursor_index = index;
+				}
+				if (input.dragging && input_char_rect.overlap(mouse))
+				{
+					cursor_index = index;
+				}
+				if (index == cursor_index)
+				{
+					cursor_draw_pos = pos + v2{x_off, 0.f};
+
+					// TODO: Improve cursor by adding 2 gradients
+					Rect cursor_rect = Rect::from_pos_size(
+						{pos.x + x_off - cursor_width / 2.f, pos.y},
+						{cursor_width, font->height}
+					);
+					painter.draw_rectangle(context, cursor_rect, cursor_color);
+				}
+				if (index == drag_cursor_index)
+				{
+					drag_cursor_draw_pos = pos + v2{x_off, 0.f};
+				}
+			};
+
+			for (usize i = 0; i < *text_length; ++i)
+			{
+				Codepoint codepoint = buffer[i];
+				const Glyph& glyph = font->get_glyph(codepoint);
+
+				painter.draw_rectangle(context, pos + v2{x_off, 0} + glyph.pos, glyph.size, text_color, glyph.uv1, glyph.uv2);
+
+				fn(i, glyph.advance_x);
+
+				x_off += glyph.advance_x + spacing;
+			}
+
+			fn(*text_length, font->get_glyph((Codepoint)' ').advance_x);
+
+			// Draw selection
+			Rect selection_rect = Rect::from_2_pos(cursor_draw_pos, drag_cursor_draw_pos + v2{0, font->height});
+			painter.draw_rectangle(context, selection_rect, selection_color);
+
+			// Adjust camera
+			if (cursor_draw_pos.x >= inside.bottom_right.x)
+			{
+				camera_pos.x += (cursor_draw_pos.x + cursor_width) - inside.bottom_right.x;
+			}
+			if (cursor_draw_pos.x < inside.top_left.x)
+			{
+				camera_pos.x -=  inside.top_left.x - cursor_draw_pos.x + cursor_width;
+			}
+
+		}
+
+		painter.pop_clip_rect(context);
+	}
+
+	return false;
+}
+
+bool input_text(Context* context, char* buffer, usize buffer_size, bool wrap)
+{
+	usize len = strlen(buffer);
+	Rect rect = Rect::from_pos_size(layout_next(context), v2{100, 30});
+	bool ret = _input_text(context, 12342, rect, buffer, buffer_size, &len, wrap);
+	buffer[len] = 0;
+	return ret;
 }
 
 bool collapse_header(Context* context, const char* name)
@@ -1641,7 +2160,7 @@ Rect Layout::allocate(v2 size)
 	// 3. Store the remaining rect in prev_line
 
 	Rect line = allocate_line(this, size);
-	
+
 	if (is_horizontal)
 	{
 		Rect ret{};
@@ -1692,6 +2211,121 @@ Rect Layout::allocate(v2 size)
 	}
 }
 
+bool begin_layout(Context* context, const Layout& layout)
+{
+	LGUI_ASSERT(context->layout_stack_top < LAYOUT_STACK_SIZE, "Layout stack is full");
+	context->layout_stack[context->layout_stack_top] = layout;
+	++context->layout_stack_top;
+}
+
+Layout& get_layout(Context* context)
+{
+	LGUI_ASSERT(context->layout_stack_top > 0, "No layout on layout stack");
+	return context->layout_stack[context->layout_stack_top - 1];
+}
+
+void end_layout(Context* context)
+{
+	Layout& pop_layout = get_layout(context);
+	LGUI_ASSERT(context->layout_stack_top > 0, "No layout on layout stack");
+	--context->layout_stack_top;
+	Layout& layout = get_layout(context);
+
+	// Update
+	v2 start_pos;
+	v2 end_pos;
+	if (pop_layout.is_horizontal)
+	{
+		start_pos = pop_layout.start;
+		end_pos = pop_layout.start + v2{pop_layout.cursor, pop_layout.cross_axis_size};
+	}
+	else // Vertical
+	{
+		start_pos = pop_layout.start;
+		end_pos = pop_layout.start + v2{pop_layout.cross_axis_size, pop_layout.cursor};
+	}
+	Rect rect = Rect::from_2_pos(start_pos, end_pos);
+
+	if (layout.is_horizontal)
+	{
+		if (layout.reverse)
+		{
+			LGUI_ASSERT(false, "Reverse not supported right now");
+			//layout.cursor =
+		}
+		else
+		{
+			layout.cursor = rect.bottom_right.x - layout.start.x + layout.spacing;
+		}
+	}
+	else // Vertical
+	{
+		if (layout.reverse)
+		{
+			LGUI_ASSERT(false, "Reverse not supported right now");
+			//layout.cursor =
+		}
+		else
+		{
+			layout.cursor = rect.bottom_right.y - layout.start.y + layout.spacing;
+		}
+	}
+
+}
+
+v2 layout_cursor_pos(const Layout& layout)
+{
+	if (layout.is_horizontal)
+	{
+		return layout.start + v2{layout.cursor, 0};
+	}
+	else
+	{
+		return layout.start + v2{0, layout.cursor};
+	}
+}
+
+bool layout_horizontal(Context* context, f32 height)
+{
+	Panel* panel = get_current_panel(context);
+	const Layout& layout = get_layout(context);
+	Layout push{};
+
+	push.start = layout_cursor_pos(layout);
+	push.is_horizontal = true;
+	push.cross_axis_size = height;
+
+	// Temp
+	push.min_line_size = 32.f;
+	push.spacing = 2.f;
+	push.cross_spacing = 2.f;
+
+	return begin_layout(context, push);
+}
+
+bool layout_vertical(Context* context, f32 width)
+{
+	Panel* panel = get_current_panel(context);
+	const Layout& layout = get_layout(context);
+
+	Layout push{};
+	push.start = layout_cursor_pos(layout);
+	push.is_horizontal = true;
+	push.cross_axis_size = width;
+
+	// Temp
+	push.min_line_size = 32.f;
+	push.spacing = 2.f;
+	push.cross_spacing = 2.f;
+
+	return begin_layout(context, push);
+}
+
+void same_line(Context* context)
+{
+}
+
+
 void debug_menu(Context* context)
 {
 	if (begin_panel(context, "Debug Window", Rect::from_pos_size({}, {400, 300}), 0))
@@ -1707,7 +2341,7 @@ void debug_menu(Context* context)
 		text(context, buffer);
 		snprintf(buffer, buffer_size, "overlap_panel = %p", context->overlap_panel);
 		text(context, buffer);
-		
+
 		end_panel(context);
 	}
 }
