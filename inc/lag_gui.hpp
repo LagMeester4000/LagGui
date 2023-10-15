@@ -474,23 +474,24 @@ struct DockCommand {
 using PanelFlag = u32;
 enum {
 	PanelFlag_TitleBar = 1 << 0, // Show title bar
-	PanelFlag_CanMove = 1 << 1, // Can move the panel by draggin the title
-	PanelFlag_CanResize = 1 << 2, // Show resize control in bottom right
-	PanelFlag_AutoResizeHorizontal = 1 << 3,
-	PanelFlag_AutoResizeVertical = 1 << 4,
+	PanelFlag_MenuBar = 1 << 1, // Show menu bar
+	PanelFlag_CanMove = 1 << 2, // Can move the panel by draggin the title
+	PanelFlag_CanResize = 1 << 3, // Show resize control in bottom right
+	PanelFlag_AutoResizeHorizontal = 1 << 4,
+	PanelFlag_AutoResizeVertical = 1 << 5,
 
-	PanelFlag_DrawBackground = 1 << 5,
-	PanelFlag_ClipContent = 1 << 6, // Add a clip rect before rendering the content
+	PanelFlag_DrawBackground = 1 << 6,
+	PanelFlag_ClipContent = 1 << 7, // Add a clip rect before rendering the content
 
-	PanelFlag_Animate = 1 << 7, // Animate t values
+	PanelFlag_Animate = 1 << 8, // Animate t values
 
-	PanelFlag_DockedTitleBar = 1 << 8, // Show docked title bar (a tab), even when there are no other docked windows
-	PanelFlag_CanDock = 1 << 9, // Panel that can dock into other dock panels, and other panels can dock into it
-	PanelFlag_NoDockHorizontal = 1 << 10,
-	PanelFlag_NoDockVertical = 1 << 11,
-	PanelFlag_NoDockTab = 1 << 12,
-	PanelFlag_DockRoot = 1 << 13, // The root dock that holds other windows
-	PanelFlag_DockReplaceWhenOne = 1 << 14, // Replace this panel when it has one docked child left
+	PanelFlag_DockedTitleBar = 1 << 9, // Show docked title bar (a tab), even when there are no other docked windows
+	PanelFlag_CanDock = 1 << 10, // Panel that can dock into other dock panels, and other panels can dock into it
+	PanelFlag_NoDockHorizontal = 1 << 11,
+	PanelFlag_NoDockVertical = 1 << 12,
+	PanelFlag_NoDockTab = 1 << 13,
+	PanelFlag_DockRoot = 1 << 14, // The root dock that holds other windows
+	PanelFlag_DockReplaceWhenOne = 1 << 15, // Replace this panel when it has one docked child left
 };
 
 const usize RETAINED_TABLE_SIZE = 16;
@@ -614,6 +615,7 @@ struct Context {
 
 // Core
 
+// TODO: Replace with init() and deinit() (or end)
 Context* create_context();
 void begin_frame(Context* context);
 void end_frame(Context* context);

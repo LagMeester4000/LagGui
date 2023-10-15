@@ -13,6 +13,10 @@
 
 namespace lgui {
 
+const auto character_start = 0x0020;
+//const auto character_end= 0x00FF;
+const auto character_end= 0x00FF;
+
 void try_packing(Arena* tmp_arena)
 {
 	auto nodes = tmp_arena->allocate_array<stbrp_node>(512);
@@ -67,8 +71,6 @@ static usize font_count(Atlas* atlas)
 
 static usize rect_count(Atlas* atlas)
 {
-	auto character_start = 0x0020;
-	auto character_end= 0x00FF;
 	auto character_count = character_end - character_start;
 
 	usize ret = 0;
@@ -88,8 +90,6 @@ struct TempFont {
 
 bool Atlas::build(Context* context)
 {
-	auto character_start = 0x0020;
-	auto character_end= 0x00FF;
 	auto character_count = character_end - character_start;
 
 	auto nodes = context->temp_arena.allocate_array<stbrp_node>(512);
@@ -215,8 +215,6 @@ bool Atlas::build(Context* context)
 
 const Glyph& Font::get_glyph(Codepoint codepoint) const
 {
-	auto character_start = 0x0020;
-	auto character_end= 0x00FF;
 	auto ind = codepoint - character_start;
 	LGUI_ASSERT(codepoint >= character_start && codepoint <= character_end, "Out of bounds");
 	return glyphs[ind];

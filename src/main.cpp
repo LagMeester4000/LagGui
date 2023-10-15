@@ -284,7 +284,7 @@ int main()
 
 			lgui::begin_frame(context);
 
-			/* // Stress test
+			// Stress test
 			for (int i = 0; i < 30; ++i)
 			{
 				lgui::push_id(context, i);
@@ -294,7 +294,6 @@ int main()
 				}
 				lgui::pop_id(context);
 			}
-			*/
 
 			if (lgui::begin_panel(context, "My Window", lgui::Rect::from_pos_size(lgui::v2{100, 100}, lgui::v2{300, 300}), 0))
 			{
@@ -369,9 +368,9 @@ int main()
 
 			//lgui::debug_menu(context);
 
-			//area_test(context, area);
+			area_test(context, area);
 
-			//ast_update(context);
+			ast_update(context);
 
 			lgui::end_frame(context);
 

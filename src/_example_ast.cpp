@@ -1485,7 +1485,7 @@ void ast_init()
 
 	AstNode* block = make_node_prefab(g_editor, AstNodeType_Block);
 
-	for (int i = 0; i < 1000; ++i)
+	for (int i = 0; i < 1; ++i)
 	{
 		//AstNode* var = make_node_prefab(g_editor, AstNodeType_VarDecl);
 		//add_child(block, var);
