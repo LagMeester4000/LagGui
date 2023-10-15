@@ -342,8 +342,8 @@ void draw_text_simple(Editor* editor, lgui::Context* context, const char* text, 
 	if (editor->window_rect.overlap(editor->draw_cursor))
 	{
 		v2 pos = editor->draw_cursor;
-		lgui::Painter& painter = lgui::get_current_panel(context)->get_painter();
-		painter.draw_text(context, g_font, text, length, pos, 0, color);
+		lgui::Painter& painter = lgui::get_current_panel()->get_painter();
+		painter.draw_text(g_font, text, length, pos, 0, color);
 	}
 
 	editor->draw_cursor.x += text_width;
@@ -362,8 +362,8 @@ Rect draw_text(Editor* editor, lgui::Context* context, const char* text, lgui::C
 
 	if (ret.overlap(editor->window_rect))
 	{
-		lgui::Painter& painter = lgui::get_current_panel(context)->get_painter();
-		painter.draw_text(context, g_font, text, pos, 0, color);
+		lgui::Painter& painter = lgui::get_current_panel()->get_painter();
+		painter.draw_text(g_font, text, pos, 0, color);
 	}
 
 	editor->draw_cursor.x += text_width;
@@ -383,8 +383,8 @@ Rect draw_text(Editor* editor, lgui::Context* context, const AstString& text, lg
 
 	if (ret.overlap(editor->window_rect))
 	{
-		lgui::Painter& painter = lgui::get_current_panel(context)->get_painter();
-		painter.draw_text(context, g_font, text.buffer, text.length, pos, 0, color);
+		lgui::Painter& painter = lgui::get_current_panel()->get_painter();
+		painter.draw_text(g_font, text.buffer, text.length, pos, 0, color);
 	}
 
 	editor->draw_cursor.x += text_width;
@@ -850,22 +850,22 @@ AstPoint prev_point(Editor* editor, AstPoint point)
 	return point;
 }
 
-const lgui::Color color_keyword = {1, 0.2, 0.2, 1};
+const lgui::Color color_keyword = {1.f, 0.2f, 0.2f, 1.f};
 
 void draw_cursor(Editor* editor, lgui::Context* context, v2 pos, bool horizontal = false)
 {
-	lgui::Color color = lgui::Color{0.3, 1.0, 0.3, 0.8};
-	lgui::Painter& painter = lgui::get_current_panel(context)->get_painter();
+	lgui::Color color = lgui::Color{0.3f, 1.0f, 0.3f, 0.8f};
+	lgui::Painter& painter = lgui::get_current_panel()->get_painter();
 	f32 thick = 2;
 	f32 horizontal_size = 25;
 
 	if (horizontal)
 	{
-		painter.draw_rectangle(context, Rect::from_pos_size(pos - v2{0, thick / 2.f}, {horizontal_size, thick}), color);
+		painter.draw_rectangle(Rect::from_pos_size(pos - v2{0, thick / 2.f}, {horizontal_size, thick}), color);
 	}
 	else // Vertical
 	{
-		painter.draw_rectangle(context, Rect::from_pos_size(pos - v2{thick / 2.f, 0}, {thick, editor->char_size.y}), color);
+		painter.draw_rectangle(Rect::from_pos_size(pos - v2{thick / 2.f, 0}, {thick, editor->char_size.y}), color);
 	}
 }
 
@@ -875,7 +875,7 @@ void update_node_text_edit(Editor* editor, lgui::Context* context, AstNode* node
 	if (context && editor->window_rect.overlap(editor->draw_cursor))
 	{
 		Rect rect = draw_text(editor, context, node->get_text());
-		lgui::InputResult input = lgui::handle_element_input(context, rect, lgui::get_id(context, node), false);
+		lgui::InputResult input = lgui::handle_element_input(rect, lgui::get_id(node), false);
 		if (input.clicked)
 		{
 			// TODO: Select specific character index
@@ -901,7 +901,7 @@ void update_cursor_position(Editor* editor, lgui::Context* context, AstNode* nod
 
 		v2 size = editor->char_size;
 		Rect c = Rect::from_pos_size(editor->draw_cursor - v2{size.x / 2.f, 0.f}, size);
-		if (lgui::handle_element_input(context, c, lgui::get_id(context, node)).clicked)
+		if (lgui::handle_element_input(c, lgui::get_id(node)).clicked)
 		{
 			editor->cursor.pos = {node, 0};
 		}
@@ -982,8 +982,8 @@ void update_node(Editor* editor, lgui::Context* context, AstNode* node)
 			update_node(editor, context, name);
 
 			// TODO: Draw greyed out _type_ text when hovered
-			Rect type_rect;
-			Rect expr_rect;
+			//Rect type_rect;
+			//Rect expr_rect;
 			if (type->list_empty())
 			{
 				//type_rect = draw_text(editor, context, " :");
@@ -1312,7 +1312,7 @@ AstNode* find_next_enter_line(Editor* editor, AstNode* node)
 
 void update_editor(Editor* editor, lgui::Context* context)
 {
-	if (lgui::begin_panel(context, "Ast editor", Rect::from_pos_size({ 0, 300 }, { 400, 400 }), 0))
+	if (lgui::begin_panel("Ast editor", Rect::from_pos_size({ 0, 300 }, { 400, 400 }), 0))
 	{
 		// Input
 		{
@@ -1425,7 +1425,7 @@ void update_editor(Editor* editor, lgui::Context* context)
 		editor->arena_swap = (editor->arena_swap + 1) % 2;
 		editor->temp_arena->reset();
 
-		lgui::Panel* panel = lgui::get_current_panel(context);
+		lgui::Panel* panel = lgui::get_current_panel();
 		editor->line = 0;
 		editor->draw_cursor_start = panel->draw_pos;
 		editor->draw_cursor = editor->draw_cursor_start;
@@ -1436,7 +1436,7 @@ void update_editor(Editor* editor, lgui::Context* context)
 		};
 		update_node(editor, context, editor->root);
 
-		lgui::end_panel(context);
+		lgui::end_panel();
 	}
 }
 

@@ -6,58 +6,10 @@
 
 namespace lgui {
 
-void set_clip_rect(v2 start, v2 end)
+void Painter::_push_command()
 {
-	BeginScissorMode(start.x, start.y, end.x - start.x, end.y - start.y);
-}
+	Context* context = get_context();
 
-void reset_clip_rect()
-{
-	EndScissorMode();
-}
-
-void push_clip_rect(Context* context, Rect rect)
-{
-	LGUI_ASSERT(context->clip_rect_stack_top < MAX_CLIP_RECT, "Too many clip rects");
-
-}
-
-void pop_clip_rect(Context* context)
-{
-	LGUI_ASSERT(context->clip_rect_stack_top > 0, "No clip rects to pop");
-
-}
-
-void draw_triangle(v2 p1, v2 p2, v2 p3, Color color)
-{
-	rlBegin(RL_TRIANGLES);
-	rlColor4f(color.r, color.g, color.b, color.a);
-	rlVertex2f(p1.x, p1.y);
-	rlVertex2f(p2.x, p2.y);
-	rlVertex2f(p3.x, p3.y);
-	rlEnd();
-}
-
-void draw_triangle(v2 p1, v2 p2, v2 p3, Color c1, Color c2, Color c3)
-{
-	rlBegin(RL_TRIANGLES);
-	rlColor4f(c1.r, c1.g, c1.b, c1.a);
-	rlVertex2f(p1.x, p1.y);
-	rlColor4f(c2.r, c2.g, c2.b, c2.a);
-	rlVertex2f(p2.x, p2.y);
-	rlColor4f(c3.r, c3.g, c3.b, c3.a);
-	rlVertex2f(p3.x, p3.y);
-	rlEnd();
-}
-
-void draw_rectangle(v2 pos, v2 size, Color color)
-{
-	draw_triangle(pos, pos + v2{size.x, 0}, pos + v2{0, size.y}, color);
-	draw_triangle(pos + v2{size.x, 0}, pos + size, pos + v2{0, size.y}, color);
-}
-
-void Painter::_push_command(Context* context)
-{
 	// Only push the command if it has any vertices
 	if (current_command.vertex_start == current_command.vertex_end ||
 		current_command.index_start == current_command.index_end)
@@ -103,8 +55,10 @@ void Painter::_push_command(Context* context)
 	}
 }
 
-void Painter::_start_painter(Context* context)
+void Painter::_start_painter()
 {
+	Context* context = get_context();
+
 	if (frame_last_updated != context->current_frame)
 	{
 		frame_last_updated = context->current_frame;
@@ -120,23 +74,25 @@ void Painter::_start_painter(Context* context)
 	}
 	else
 	{
-		_push_command(context);
+		_push_command();
 	}
 }
 
-void Painter::_restart_painter(Context* context)
+void Painter::_restart_painter()
 {
+	Context* context = get_context();
+
 	current_command.vertex_start = context->draw_buffer.vertex_buffer_top;
 	current_command.vertex_end = current_command.vertex_start;
 	current_command.index_start = context->draw_buffer.index_buffer_top;
 	current_command.index_end = current_command.index_start;
 }
 
-void Painter::push_clip_rect(Context* context, Rect rect)
+void Painter::push_clip_rect(Rect rect)
 {
 	LGUI_ASSERT(clip_rect_stack_top < MAX_CLIP_RECT, "Out of bounds");
 
-	_push_command(context);
+	_push_command();
 
 	Rect clip = get_clip_rect();
 	Rect new_rect = clip.clip(rect);
@@ -146,11 +102,11 @@ void Painter::push_clip_rect(Context* context, Rect rect)
 	current_command.clip_rect = new_rect;
 }
 
-void Painter::pop_clip_rect(Context* context)
+void Painter::pop_clip_rect()
 {
 	LGUI_ASSERT(clip_rect_stack_top > 0, "Out of bounds");
 
-	_push_command(context);
+	_push_command();
 
 	--clip_rect_stack_top;
 	Rect clip = get_clip_rect();
@@ -175,23 +131,28 @@ struct ColorU32 {
 };
 
 // Has enough space for count amount of vertices
-inline static bool has_vertex_space(Context* context, Painter* painter, usize vert_count)
+inline static bool has_vertex_space(Painter* painter, usize vert_count)
 {
+	Context* context = get_context();
+
 	return painter->current_command.vertex_end + vert_count * VERTEX_SIZE_FLOATS <
 		context->draw_buffer.vertex_buffer_length;
 }
 
 // Has enough space for count amount of vertices
-inline static bool has_index_space(Context* context, Painter* painter, usize tri_count)
+inline static bool has_index_space(Painter* painter, usize tri_count)
 {
+	Context* context = get_context();
+
 	return painter->current_command.index_end + tri_count < context->draw_buffer.index_buffer_length;
 }
 
 // Returns index
-inline static u32 push_vertex(Context* context, Painter* painter, v2 pos, v2 uv, ColorU32 color)
+inline static DrawIndex push_vertex(Painter* painter, v2 pos, v2 uv, ColorU32 color)
 {
-	//u32 index = context->draw_buffer.vertex_buffer_top;
-	u32 index = painter->current_command.vertex_end;
+	Context* context = get_context();
+
+	usize index = painter->current_command.vertex_end;
 	LGUI_ASSERT(index % VERTEX_SIZE_FLOATS == 0, "vertex buffer has incorrect number of floats");
 	f32* ptr = context->draw_buffer.vertex_buffer + index;
 	ptr[0] = pos.x;
@@ -199,21 +160,21 @@ inline static u32 push_vertex(Context* context, Painter* painter, v2 pos, v2 uv,
 	ptr[2] = uv.x;
 	ptr[3] = uv.y;
 	ptr[4] = color.as_float;
-	//context->draw_buffer.vertex_buffer_top += VERTEX_SIZE_FLOATS;
-	//painter->current_command.vertex_end = context->draw_buffer.vertex_buffer_top;
 	painter->current_command.vertex_end += VERTEX_SIZE_FLOATS;
-	return index / VERTEX_SIZE_FLOATS;
+	auto ret = index / VERTEX_SIZE_FLOATS;
+	// This shouldn't actually happen if the API is used properly, because we check for space before adding vertices
+	LGUI_ASSERT(ret < DRAW_INDEX_MAX, "The returned index is higher than the possible amount of vertices, change the draw index type");
+	return (DrawIndex)ret;
 }
 
-inline static void push_index_triangle(Context* context, Painter* painter, u16 i1, u16 i2, u16 i3)
+inline static void push_index_triangle(Painter* painter, DrawIndex i1, DrawIndex i2, DrawIndex i3)
 {
-	//u16* ptr = context->draw_buffer.index_buffer + context->draw_buffer.index_buffer_top;
-	u16* ptr = context->draw_buffer.index_buffer + painter->current_command.index_end;
+	Context* context = get_context();
+
+	DrawIndex* ptr = context->draw_buffer.index_buffer + painter->current_command.index_end;
 	ptr[0] = i1;
 	ptr[1] = i2;
 	ptr[2] = i3;
-	//context->draw_buffer.index_buffer_top += 3;
-	//painter->current_command.vertex_end = context->draw_buffer.vertex_buffer_top;
 	painter->current_command.index_end += 3;
 }
 
@@ -240,36 +201,36 @@ inline static void write_vertex(f32** ptr, v2 pos, v2 uv, ColorU32 color)
 
 ColorU32 color32_from_f32_color(Color c)
 {
-	return rgba(c.r * 255.f, c.g * 255.f, c.b * 255.f, c.a * 255.f);
+	return rgba((u8)(c.r * 255.f), (u8)(c.g * 255.f), (u8)(c.b * 255.f), (u8)(c.a * 255.f));
 }
 
-void Painter::draw_rectangle(Context* context, v2 pos, v2 size, Color color, v2 uv1, v2 uv2)
+void Painter::draw_rectangle(v2 pos, v2 size, Color color, v2 uv1, v2 uv2)
 {
-	if (!has_vertex_space(context, this, 4) || !has_index_space(context, this, 2))
+	if (!has_vertex_space(this, 4) || !has_index_space(this, 2))
 	{
 		return;
 	}
 
 	ColorU32 color32 = color32_from_f32_color(color);
-	u32 vx1 = push_vertex(context, this, pos, uv1, color32);
-	u32 vx2 = push_vertex(context, this, pos + v2{size.x, 0.f}, {uv2.x, uv1.y}, color32);
-	u32 vx3 = push_vertex(context, this, pos + v2{0.f, size.y}, {uv1.x, uv2.y}, color32);
-	u32 vx4 = push_vertex(context, this, pos + size, uv2, color32);
+	DrawIndex vx1 = push_vertex(this, pos, uv1, color32);
+	DrawIndex vx2 = push_vertex(this, pos + v2{size.x, 0.f}, {uv2.x, uv1.y}, color32);
+	DrawIndex vx3 = push_vertex(this, pos + v2{0.f, size.y}, {uv1.x, uv2.y}, color32);
+	DrawIndex vx4 = push_vertex(this, pos + size, uv2, color32);
 
-	push_index_triangle(context, this, vx1, vx2, vx3);
-	push_index_triangle(context, this, vx2, vx3, vx4);
+	push_index_triangle(this, vx1, vx2, vx3);
+	push_index_triangle(this, vx2, vx3, vx4);
 }
 
-void Painter::draw_rectangle(Context* context, v2 pos, v2 size, Color color)
+void Painter::draw_rectangle(v2 pos, v2 size, Color color)
 {
 	// 1.0 UV doesn't work
 	v2 corner = {0.9999f, 0.9999f};
-	draw_rectangle(context, pos, size, color, corner, corner);
+	draw_rectangle(pos, size, color, corner, corner);
 }
 
-void Painter::draw_rectangle_gradient(Context* context, v2 pos, v2 size, Color c1, Color c2, Color c3, Color c4)
+void Painter::draw_rectangle_gradient(v2 pos, v2 size, Color c1, Color c2, Color c3, Color c4)
 {
-	if (!has_vertex_space(context, this, 4) || !has_index_space(context, this, 2))
+	if (!has_vertex_space(this, 4) || !has_index_space(this, 2))
 	{
 		return;
 	}
@@ -279,28 +240,28 @@ void Painter::draw_rectangle_gradient(Context* context, v2 pos, v2 size, Color c
 	ColorU32 color2 = color32_from_f32_color(c2);
 	ColorU32 color3 = color32_from_f32_color(c3);
 	ColorU32 color4 = color32_from_f32_color(c4);
-	u32 vx1 = push_vertex(context, this, pos, uv, color1);
-	u32 vx2 = push_vertex(context, this, pos + v2{size.x, 0.f}, uv, color2);
-	u32 vx3 = push_vertex(context, this, pos + v2{0.f, size.y}, uv, color3);
-	u32 vx4 = push_vertex(context, this, pos + size, uv, color4);
+	u32 vx1 = push_vertex(this, pos, uv, color1);
+	u32 vx2 = push_vertex(this, pos + v2{size.x, 0.f}, uv, color2);
+	u32 vx3 = push_vertex(this, pos + v2{0.f, size.y}, uv, color3);
+	u32 vx4 = push_vertex(this, pos + size, uv, color4);
 
-	push_index_triangle(context, this, vx1, vx2, vx3);
-	push_index_triangle(context, this, vx2, vx3, vx4);
+	push_index_triangle(this, vx1, vx2, vx3);
+	push_index_triangle(this, vx2, vx3, vx4);
 }
 
-void Painter::draw_rectangle_gradient(Context* context, Rect rect, Color c1, Color c2, Color c3, Color c4)
+void Painter::draw_rectangle_gradient(Rect rect, Color c1, Color c2, Color c3, Color c4)
 {
-	draw_rectangle_gradient(context, rect.top_left, rect.size(), c1, c2, c3, c4);
+	draw_rectangle_gradient(rect.top_left, rect.size(), c1, c2, c3, c4);
 }
 
-void Painter::draw_rectangle(Context* context, Rect rect, Color color)
+void Painter::draw_rectangle(Rect rect, Color color)
 {
 	// 1.0 UV doesn't work
 	v2 corner = {0.9999f, 0.9999f};
-	draw_rectangle(context, rect.top_left, rect.size(), color, corner, corner);
+	draw_rectangle(rect.top_left, rect.size(), color, corner, corner);
 }
 
-f32 Painter::draw_text(Context* context, Font* font, const char* text, v2 pos, f32 spacing, Color color)
+f32 Painter::draw_text(Font* font, const char* text, v2 pos, f32 spacing, Color color)
 {
 	// Flooring the position to prevent weird rendering issues
 	pos = v2{floorf(pos.x), floorf(pos.y)};
@@ -312,7 +273,7 @@ f32 Painter::draw_text(Context* context, Font* font, const char* text, v2 pos, f
 		Codepoint codepoint = text[i];
 		const Glyph& glyph = font->get_glyph(codepoint);
 
-		draw_rectangle(context, pos + v2{x_off, 0} + glyph.pos, glyph.size, color, glyph.uv1, glyph.uv2);
+		draw_rectangle(pos + v2{x_off, 0} + glyph.pos, glyph.size, color, glyph.uv1, glyph.uv2);
 		//v2 test_uv = v2{0.9999f, 0.999f};
 		//draw_rectangle(context, pos + v2{x_off, 0} + glyph.pos, glyph.size, color, test_uv, test_uv);
 
@@ -323,7 +284,7 @@ f32 Painter::draw_text(Context* context, Font* font, const char* text, v2 pos, f
 	return x_off;
 }
 
-f32 Painter::draw_text(Context* context, Font* font, const char* text, usize text_length, v2 pos, f32 spacing, Color color)
+f32 Painter::draw_text(Font* font, const char* text, usize text_length, v2 pos, f32 spacing, Color color)
 {
 	// Flooring the position to prevent weird rendering issues
 	pos = v2{floorf(pos.x), floorf(pos.y)};
@@ -335,14 +296,14 @@ f32 Painter::draw_text(Context* context, Font* font, const char* text, usize tex
 		LGUI_ASSERT(codepoint != 0, "End of string reached before provided text length");
 		const Glyph& glyph = font->get_glyph(codepoint);
 
-		draw_rectangle(context, pos + v2{x_off, 0} + glyph.pos, glyph.size, color, glyph.uv1, glyph.uv2);
+		draw_rectangle(pos + v2{x_off, 0} + glyph.pos, glyph.size, color, glyph.uv1, glyph.uv2);
 		x_off += glyph.advance_x + spacing;
 	}
 
 	return x_off;
 }
 
-bool Painter::draw_text_fit(Context* context, Font* font, const char* text, Rect rect, f32 spacing, Color color, i8 h_align, i8 v_align)
+bool Painter::draw_text_fit(Font* font, const char* text, Rect rect, f32 spacing, Color color, i8 h_align, i8 v_align)
 {
 	usize len = strlen(text);
 	if (len == 0)
@@ -354,7 +315,7 @@ bool Painter::draw_text_fit(Context* context, Font* font, const char* text, Rect
 	if (width <= rect.width())
 	{
 		Rect text_rect = rect.align_size({width, font->height}, h_align, v_align);
-		draw_text(context, font, text, text_rect.top_left, spacing, color);
+		draw_text(font, text, text_rect.top_left, spacing, color);
 		return true;
 	}
 	else
@@ -388,8 +349,8 @@ bool Painter::draw_text_fit(Context* context, Font* font, const char* text, Rect
 		}
 
 		Rect text_rect = rect.align_size({fit_text_width + dots_width, font->height}, -1, v_align);
-		draw_text(context, font, text, fit_text_length, text_rect.top_left, spacing, color);
-		draw_text(context, font, "...", text_rect.top_left + v2{fit_text_width, 0}, spacing, color);
+		draw_text(font, text, fit_text_length, text_rect.top_left, spacing, color);
+		draw_text(font, "...", text_rect.top_left + v2{fit_text_width, 0}, spacing, color);
 
 		return false;
 	}
@@ -417,20 +378,20 @@ void Painter::end_triangle_strip()
 	triangle_strip_indices[1] = 0;
 }
 
-void Painter::add_strip_triangle(Context* context, v2 pos, Color color, v2 uv)
+void Painter::add_strip_triangle(v2 pos, Color color, v2 uv)
 {
-	if (!has_vertex_space(context, this, 1) || !has_index_space(context, this, 1))
+	if (!has_vertex_space(this, 1) || !has_index_space(this, 1))
 	{
 		return;
 	}
 
 	LGUI_ASSERT(triangle_strip_mode != TriangleStripMode_None, "We are not in a triangle strip");
 
-	u16 index = push_vertex(context, this, pos, uv, color32_from_f32_color(color));
+	DrawIndex index = push_vertex(this, pos, uv, color32_from_f32_color(color));
 
 	if (triangle_strip_counter >= 2)
 	{
-		push_index_triangle(context, this, triangle_strip_indices[0], triangle_strip_indices[1], index);
+		push_index_triangle(this, triangle_strip_indices[0], triangle_strip_indices[1], index);
 	}
 	else
 	{
@@ -455,9 +416,9 @@ void Painter::add_strip_triangle(Context* context, v2 pos, Color color, v2 uv)
 	}
 }
 
-void Painter::add_strip_triangle(Context* context, v2 pos, Color color)
+void Painter::add_strip_triangle(v2 pos, Color color)
 {
-	add_strip_triangle(context, pos, color, {0.9999f, 0.9999f});
+	add_strip_triangle(pos, color, {0.9999f, 0.9999f});
 }
 
 void Painter::begin_convex_strip()
@@ -482,29 +443,29 @@ void Painter::end_convex_strip()
 	triangle_strip_indices[1] = 0;
 }
 
-void Painter::draw_circle(Context* context, v2 pos, f32 size, f32 t, Color color)
+void Painter::draw_circle(v2 pos, f32 size, f32 t, Color color)
 {
 	begin_convex_strip();
 
-	add_strip_triangle(context, pos, color);
+	add_strip_triangle(pos, color);
 
 	for (f32 f = 0.f; f < t; f += 0.05f)
 	{
 		v2 rot = {sinf(f * 2.f * PI), cosf(f * 2.f * PI)};
-		add_strip_triangle(context, pos + rot * size, color);
+		add_strip_triangle(pos + rot * size, color);
 	}
 
 	v2 rot = {sinf(t * 2.f * PI), cosf(t * 2.f * PI)};
-	add_strip_triangle(context, pos + rot * size, color);
+	add_strip_triangle(pos + rot * size, color);
 
 	end_convex_strip();
 }
 
-void Painter::draw_round_corner(Context* context, v2 pos, v2 size, bool is_right, bool is_bottom, Color color)
+void Painter::draw_round_corner(v2 pos, v2 size, bool is_right, bool is_bottom, Color color)
 {
 	begin_convex_strip();
 
-	add_strip_triangle(context, pos, color);
+	add_strip_triangle(pos, color);
 
 	f32 detail = LGUI_MAX(size.x, size.y) / 3.f;
 	detail = LGUI_CLAMP(3.f, 15.f, detail);
@@ -522,16 +483,16 @@ void Painter::draw_round_corner(Context* context, v2 pos, v2 size, bool is_right
 	for (f32 f = 0.f; f < 1.f; f += detail)
 	{
 		v2 rot = (v2{sinf(f * 0.5f * PI), cosf(f * 0.5f * PI)} * mul + move);
-		add_strip_triangle(context, pos + rot * size, color);
+		add_strip_triangle(pos + rot * size, color);
 	}
 
 	v2 rot = (v2{sinf(0.5f * PI), cosf(0.5f * PI)} * mul + move);
-	add_strip_triangle(context, pos + rot * size, color);
+	add_strip_triangle(pos + rot * size, color);
 
 	end_convex_strip();
 }
 
-void Painter::draw_rounded_rectangle(Context* context, v2 pos, v2 size, f32 corner_size[4], Color color)
+void Painter::draw_rounded_rectangle(v2 pos, v2 size, f32 corner_size[4], Color color)
 {
 	f32 top_side_scale = (corner_size[0] + corner_size[1]) > 0.f ? LGUI_MIN(size.x / (corner_size[0] + corner_size[1]), 1.f) : 0.f;
 	f32 bottom_side_scale = (corner_size[2] + corner_size[3]) > 0.f ? LGUI_MIN(size.x / (corner_size[2] + corner_size[3]), 1.f) : 0.f;
@@ -551,7 +512,7 @@ void Painter::draw_rounded_rectangle(Context* context, v2 pos, v2 size, f32 corn
 
 	if (top_side_flat && bottom_side_flat)
 	{
-		draw_rectangle(context, pos, size, color);
+		draw_rectangle(pos, size, color);
 	}
 
 	v2 top_left_v = pos;
@@ -561,19 +522,19 @@ void Painter::draw_rounded_rectangle(Context* context, v2 pos, v2 size, f32 corn
 
 	if (top_left)
 	{
-		draw_round_corner(context, top_left_v, {top_left, top_left}, false, false, color);
+		draw_round_corner(top_left_v, {top_left, top_left}, false, false, color);
 	}
 	if (top_right)
 	{
-		draw_round_corner(context, top_right_v, {top_right, top_right}, true, false, color);
+		draw_round_corner(top_right_v, {top_right, top_right}, true, false, color);
 	}
 	if (bottom_left)
 	{
-		draw_round_corner(context, bottom_left_v, {bottom_left, bottom_left}, false, true, color);
+		draw_round_corner(bottom_left_v, {bottom_left, bottom_left}, false, true, color);
 	}
 	if (bottom_right)
 	{
-		draw_round_corner(context, bottom_right_v, { bottom_left, bottom_left }, true, true, color);
+		draw_round_corner(bottom_right_v, { bottom_left, bottom_left }, true, true, color);
 	}
 }
 
@@ -583,8 +544,10 @@ void Painter::draw_rounded_rectangle(Context* context, v2 pos, v2 size, f32 corn
 }*/
 
 // TODO: remove raylib
-void rl_render(Context* context)
+void rl_render()
 {
+	Context* context = get_context();
+
 	DrawBuffer& draw_buffer = context->draw_buffer;
 
 	rlDisableBackfaceCulling();
@@ -595,7 +558,7 @@ void rl_render(Context* context)
 		{
 			v2 clip_pos = command->clip_rect.top_left;
 			v2 clip_size = command->clip_rect.size();
-			BeginScissorMode(clip_pos.x, clip_pos.y, clip_size.x, clip_size.y);
+			BeginScissorMode((int)clip_pos.x, (int)clip_pos.y, (int)clip_size.x, (int)clip_size.y);
 
 			// Has to be done after the scisor mode
 			rlBegin(RL_TRIANGLES);
@@ -604,11 +567,11 @@ void rl_render(Context* context)
 			rlEnableTexture(context->atlas.texture_id);
 			rlSetTexture(context->atlas.texture_id);
 
-			for (u32 i = command->index_start; i < command->index_end; i += 3)
+			for (usize i = command->index_start; i < command->index_end; i += 3)
 			{
-				u16 i1 = draw_buffer.index_buffer[i + 0];
-				u16 i2 = draw_buffer.index_buffer[i + 1];
-				u16 i3 = draw_buffer.index_buffer[i + 2];
+				DrawIndex i1 = draw_buffer.index_buffer[i + 0];
+				DrawIndex i2 = draw_buffer.index_buffer[i + 1];
+				DrawIndex i3 = draw_buffer.index_buffer[i + 2];
 
 				f32* vx1 = draw_buffer.vertex_buffer + i1 * VERTEX_SIZE_FLOATS;
 				f32* vx2 = draw_buffer.vertex_buffer + i2 * VERTEX_SIZE_FLOATS;

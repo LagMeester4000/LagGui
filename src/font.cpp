@@ -26,13 +26,15 @@ void try_packing(Arena* tmp_arena)
 	//stbrp_pack_rects(&packer, );
 }
 
-Font* Atlas::add_font(Context* context, const char* filename, f32 pixel_height)
+Font* Atlas::add_font(const char* filename, f32 pixel_height)
 {
+	Context* context = get_context();
+
 	if (does_file_exist(filename))
 	{
 		Font* ret = context->arena.allocate_one<Font>();
 		ret->name = copy_string(&context->arena, filename);
-		ret->name_hash = xcrc32((const byte*)ret->name, strlen(ret->name), 0);
+		ret->name_hash = xcrc32((const byte*)ret->name, (int)strlen(ret->name), 0);
 		ret->height = pixel_height;
 
 		if (!context->atlas.first_font)
@@ -52,7 +54,7 @@ Font* Atlas::add_font(Context* context, const char* filename, f32 pixel_height)
 	return nullptr;
 }
 
-Icon* Atlas::add_icon(Context* context, const char* name, byte* pixels_rgba, u32 width, u32 height)
+Icon* Atlas::add_icon(const char* name, byte* pixels_rgba, u32 width, u32 height)
 {
 
 	return nullptr;
@@ -88,8 +90,10 @@ struct TempFont {
 	f32 scale;
 };
 
-bool Atlas::build(Context* context)
+bool Atlas::build()
 {
+	Context* context = get_context();
+
 	auto character_count = character_end - character_start;
 
 	auto nodes = context->temp_arena.allocate_array<stbrp_node>(512);
@@ -130,7 +134,7 @@ bool Atlas::build(Context* context)
 		}
 	}
 
-	if (stbrp_pack_rects(&packer, rects.ptr, rects.length) == 0)
+	if (stbrp_pack_rects(&packer, rects.ptr, (int)rects.length) == 0)
 	{
 		return false;
 	}

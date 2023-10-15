@@ -95,9 +95,9 @@ struct NoteArea {
 
 void area_test(lgui::Context* context, NoteArea& area)
 {
-	if (lgui::begin_panel(context, "Area", Rect::from_pos_size({}, {500, 500}), 0))
+	if (lgui::begin_panel("Area", Rect::from_pos_size({}, {500, 500}), 0))
 	{
-		lgui::Panel* panel = lgui::get_current_panel(context);
+		lgui::Panel* panel = lgui::get_current_panel();
 		lgui::Painter& painter = panel->get_painter();
 
 		// The whole area
@@ -122,17 +122,17 @@ void area_test(lgui::Context* context, NoteArea& area)
 		{
 			float screen_x = rect.top_left.x + x;
 			Rect line = Rect::from_pos_size({ screen_x, rect.top_left.y }, { 1, rect.height() });
-			painter.draw_rectangle(context, line, line_color);
+			painter.draw_rectangle(line, line_color);
 		}
 		for (float y = -pos_screen_offset.y; y < rect.height(); y += cell_size.y)
 		{
 			float screen_y = rect.top_left.y + y;
 			Rect line = Rect::from_pos_size({ rect.top_left.x, screen_y }, { rect.width(), 1 });
-			painter.draw_rectangle(context, line, line_color);
+			painter.draw_rectangle(line, line_color);
 		}
 
 
-		lgui::InputResult rect_response = lgui::handle_element_input(context, rect, lgui::get_id(context, "background"), true);
+		lgui::InputResult rect_response = lgui::handle_element_input(rect, lgui::get_id("background"), true);
 		if (rect_response.dragging)
 		{
 			area.pos -= rect_response.drag_delta / cell_size;
@@ -167,31 +167,31 @@ void area_test(lgui::Context* context, NoteArea& area)
 				v2{it.width * cell_size.x, cell_size.y});
 			note_rect.cut_bottom(-1);
 
-			painter.draw_rectangle(context, note_rect, note_outline_color);
-			painter.draw_rectangle_gradient(context, note_rect.pad(1), note_top_color, note_top_color, note_bottom_color, note_bottom_color);
+			painter.draw_rectangle(note_rect, note_outline_color);
+			painter.draw_rectangle_gradient(note_rect.pad(1), note_top_color, note_top_color, note_bottom_color, note_bottom_color);
 
-			lgui::push_id(context, it.id);
+			lgui::push_id(it.id);
 
 			Rect right_side = note_rect.cut_right(5);
-			lgui::InputResult input_main = lgui::handle_element_input(context, note_rect, lgui::get_id(context, "main"), true);
-			lgui::InputResult input_right = lgui::handle_element_input(context, right_side, lgui::get_id(context, "right"), true);
+			lgui::InputResult input_main = lgui::handle_element_input(note_rect, lgui::get_id("main"), true);
+			lgui::InputResult input_right = lgui::handle_element_input(right_side, lgui::get_id("right"), true);
 
 			if (input_main.pressed)
 			{
 				area.note_on_press = it;
-				area.mouse_on_press = (lgui::mouse_pos(context) - rect.top_left + pos) / cell_size;
+				area.mouse_on_press = (lgui::mouse_pos() - rect.top_left + pos) / cell_size;
 			}
 			if (input_main.dragging)
 			{
 				float x_offset = area.note_on_press.x - area.mouse_on_press.x;
-				v2 mouse_local = (lgui::mouse_pos(context) - rect.top_left + pos) / cell_size;
+				v2 mouse_local = (lgui::mouse_pos() - rect.top_left + pos) / cell_size;
 				float mouse_x = mouse_local.x + x_offset;
 				it.x = mouse_x - fmodf(mouse_x, width_snap);
 				it.tone = (int)mouse_local.y;
 			}
 			if (input_right.dragging)
 			{
-				v2 mouse_local = (lgui::mouse_pos(context) - rect.top_left + pos) / cell_size;
+				v2 mouse_local = (lgui::mouse_pos() - rect.top_left + pos) / cell_size;
 				it.width = mouse_local.x - fmodf(mouse_local.x, width_snap) - it.x;
 				it.width = LGUI_MAX(it.width, 0.05f);
 			}
@@ -202,12 +202,12 @@ void area_test(lgui::Context* context, NoteArea& area)
 				--i;
 			}
 
-			lgui::pop_id(context);
+			lgui::pop_id();
 		}
 
 		if (rect_response.clicked)
 		{
-			v2 mouse_local = (lgui::mouse_pos(context) - rect.top_left + pos) / cell_size;
+			v2 mouse_local = (lgui::mouse_pos() - rect.top_left + pos) / cell_size;
 			Note note{};
 			note.x = mouse_local.x;
 			note.width = 0.25f;
@@ -218,7 +218,7 @@ void area_test(lgui::Context* context, NoteArea& area)
 		}
 
 
-		lgui::end_panel(context);
+		lgui::end_panel();
 	}
 }
 
@@ -234,26 +234,26 @@ int main()
 	SetWindowState(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
 	SetTargetFPS(60);
 
-	lgui::Context* context = lgui::create_context();
+	lgui::Context* context = lgui::init();
 
-	lgui::Font* font = context->atlas.add_font(context, "resources/fonts/montserrat/Montserrat-Regular.ttf", 18);
-	lgui::Font* mono_font = context->atlas.add_font(context, "resources/fonts/ubuntu/UbuntuMono-R.ttf", 18);
-	context->atlas.build(context);
+	lgui::Font* font = context->atlas.add_font("resources/fonts/montserrat/Montserrat-Regular.ttf", 18);
+	lgui::Font* mono_font = context->atlas.add_font("resources/fonts/ubuntu/UbuntuMono-R.ttf", 18);
+	context->atlas.build();
 	g_font = mono_font;
 
 	lgui::Style style{};
 	style.default_font = font;
 	style.line_padding = 4.f;
-	style.window_outline = GREY(0.15);
-	style.window_background = GREY(0.3);
-	style.window_title_background = GREY(0.2);
-	style.window_title_color = GREY(0.9);
-	style.button_background = COLOR_T(0.4, 0.4, 0.9, 1.f);
-	style.button_background_hover = COLOR_T(0.4, 0.4, 0.9, 0.8f);
-	style.button_background_down = COLOR_T(0.4, 0.4, 0.9, 0.5f);
+	style.window_outline = GREY(0.15f);
+	style.window_background = GREY(0.3f);
+	style.window_title_background = GREY(0.2f);
+	style.window_title_color = GREY(0.9f);
+	style.button_background = COLOR_T(0.4f, 0.4f, 0.9f, 1.f);
+	style.button_background_hover = COLOR_T(0.4f, 0.4f, 0.9f, 0.8f);
+	style.button_background_down = COLOR_T(0.4f, 0.4f, 0.9f, 0.5f);
 	style.button_padding = 2.f;
-	style.checkbox_outline = COLOR_T(0.6, 0.6, 1.0, 1.f);
-	lgui::push_style(context, style);
+	style.checkbox_outline = COLOR_T(0.6f, 0.6f, 1.0f, 1.f);
+	lgui::push_style(style);
 
 	bool test_value = false;
 	bool test_value2 = false;
@@ -282,35 +282,35 @@ int main()
 
 			rlDisableBackfaceCulling();
 
-			lgui::begin_frame(context);
+			lgui::begin_frame(GetFrameTime());
 
 			// Stress test
 			for (int i = 0; i < 30; ++i)
 			{
-				lgui::push_id(context, i);
-				if (lgui::begin_panel(context, "My Window", lgui::Rect::from_pos_size(lgui::v2{(f32)i * 2, (f32)i * 2}, lgui::v2{100, 100}), 0))
+				lgui::push_id(i);
+				if (lgui::begin_panel("My Window", lgui::Rect::from_pos_size(lgui::v2{(f32)i * 2, (f32)i * 2}, lgui::v2{100, 100}), 0))
 				{
-					lgui::end_panel(context);
+					lgui::end_panel();
 				}
-				lgui::pop_id(context);
+				lgui::pop_id();
 			}
 
-			if (lgui::begin_panel(context, "My Window", lgui::Rect::from_pos_size(lgui::v2{100, 100}, lgui::v2{300, 300}), 0))
+			if (lgui::begin_panel("My Window", lgui::Rect::from_pos_size(lgui::v2{100, 100}, lgui::v2{300, 300}), 0))
 			{
-				if (lgui::button(context, "Button1").clicked)
+				if (lgui::button("Button1").clicked)
 				{
 					printf("Button 1 pressed!\n");
 				}
 
-				if (lgui::button(context, "Button2").clicked)
+				if (lgui::button("Button2").clicked)
 				{
 					printf("Button 2 pressed!\n");
 				}
 
-				lgui::checkbox(context, "Checkbox", &test_value);
+				lgui::checkbox("Checkbox", &test_value);
 
 				{
-					lgui::Painter& painter = lgui::get_current_panel(context)->get_painter();
+					lgui::Painter& painter = lgui::get_current_panel()->get_painter();
 					/*if (lgui::layout_vertical(context, 300))
 					{
 						painter.draw_rectangle(context, lgui::get_layout(context).allocate({10, 10}), {1.f, 0.f, 0.f, 0.f});
@@ -318,52 +318,52 @@ int main()
 					}*/
 				}
 
-				lgui::end_panel(context);
+				lgui::end_panel();
 			}
 
-			if (lgui::begin_panel(context, "Other Window", lgui::Rect::from_pos_size(lgui::v2{300, 100}, lgui::v2{300, 500}), 0))
+			if (lgui::begin_panel("Other Window", lgui::Rect::from_pos_size(lgui::v2{300, 100}, lgui::v2{300, 500}), 0))
 			{
-				if (lgui::button(context, "Button3").clicked)
+				if (lgui::button("Button3").clicked)
 				{
 					printf("Button 3 pressed!\n");
 				}
 
-				lgui::checkbox(context, "Checkbox", &test_value2);
+				lgui::checkbox("Checkbox", &test_value2);
 
-				lgui::text(context, "");
-				lgui::text(context, "New elements:");
+				lgui::text("");
+				lgui::text("New elements:");
 
-				lgui::radio_button(context, "Radio1", 1, &test_radio_value);
-				lgui::radio_button(context, "Radio2", 2, &test_radio_value);
-				lgui::radio_button(context, "Radio3", 3, &test_radio_value);
+				lgui::radio_button("Radio1", 1, &test_radio_value);
+				lgui::radio_button("Radio2", 2, &test_radio_value);
+				lgui::radio_button("Radio3", 3, &test_radio_value);
 
-				lgui::drag_value(context, "drag value", &test_drag_value);
+				lgui::drag_value("drag value", &test_drag_value);
 
-				lgui::input_text(context, text_buffer, text_buffer_size);
+				lgui::input_text(text_buffer, text_buffer_size);
 
 				// draw_text_fit test
-				if (lgui::collapse_header(context, "draw_text_fit test"))
+				if (lgui::collapse_header("draw_text_fit test"))
 				{
-					lgui::text(context, "This is a piece of text that wraps around when reaching the end of the window, soon I will make it wrap on spaces instead of at any character ", true);
+					lgui::text("This is a piece of text that wraps around when reaching the end of the window, soon I will make it wrap on spaces instead of at any character ", true);
 
-					lgui::drag_value(context, "fit value", &test_text_fit_value);
+					lgui::drag_value("fit value", &test_text_fit_value);
 
-					lgui::Painter& painter = lgui::get_current_panel(context)->get_painter();
+					lgui::Painter& painter = lgui::get_current_panel()->get_painter();
 					//const char* text = "This is my long text that will be cut off eventually";
 					const char* text = "This is my text that will be cut off";
 					for (int i = -1; i < 2; ++i)
 					{
-						lgui::v2 pos = lgui::layout_next(context);
+						lgui::v2 pos = lgui::layout_next();
 						lgui::Rect rect = lgui::Rect::from_pos_size(pos, {5 + test_text_fit_value, 25});
-						painter.draw_rectangle(context, rect, {0, 0, 0, 1});
-						painter.draw_text_fit(context, font, text, rect, 0, {1, 1, 1, 1}, i, 0);
+						painter.draw_rectangle(rect, {0, 0, 0, 1});
+						painter.draw_text_fit(font, text, rect, 0, {1, 1, 1, 1}, i, 0);
 					}
 
-					lgui::v2 pos2 = lgui::layout_next(context);
-					painter.draw_text(context, font, text, pos2, 0, {1, 1, 1, 1});
+					lgui::v2 pos2 = lgui::layout_next();
+					painter.draw_text(font, text, pos2, 0, {1, 1, 1, 1});
 				}
 
-				lgui::end_panel(context);
+				lgui::end_panel();
 			}
 
 			//lgui::debug_menu(context);
@@ -372,17 +372,15 @@ int main()
 
 			ast_update(context);
 
-			lgui::end_frame(context);
+			lgui::end_frame();
 
 
-			//rlBegin(RL_QUADS);
+			// Draw font atlas
 			rlBegin(RL_TRIANGLES);
-			//rlColor4ub(255, 200, 255, 255);
-			rlColor4ub(255, 0, 0, 255);
-			//rlBindImageTexture(context->atlas.texture_id, 0, RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8A8, true);
+			rlColor4ub(255, 255, 255, 255);
 			rlEnableTexture(context->atlas.texture_id);
 			rlSetTexture(context->atlas.texture_id);
-			int w = 512;
+			f32 w = 512.f;
 			rlTexCoord2f(0, 0);
 			rlVertex2f(0, 0);
 			rlTexCoord2f(1, 0);
@@ -410,6 +408,8 @@ int main()
 			DrawFPS(1, 1);
 		EndDrawing();
 	}
+
+	lgui::deinit();
 
 	CloseWindow();
 

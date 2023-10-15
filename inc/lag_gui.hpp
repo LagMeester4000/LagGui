@@ -180,24 +180,27 @@ struct DrawCommand {
 	DrawCommand* prev;
 
 	Rect clip_rect;
-	u32 vertex_start;
-	u32 vertex_end;
-	u32 index_start;
-	u32 index_end;
+	usize vertex_start;
+	usize vertex_end;
+	usize index_start;
+	usize index_end;
 	TextureID texture_id;
 };
 
 struct Context;
 
+const u64 DRAW_INDEX_MAX = 1 << 16;
+using DrawIndex = u16;
+
 struct DrawBuffer {
 	f32* vertex_buffer;
 	usize vertex_buffer_length;
 	usize vertex_buffer_top;
-	u16* index_buffer;
+	DrawIndex* index_buffer;
 	usize index_buffer_length;
 	usize index_buffer_top;
 
-	void allocate(Context* context);
+	void allocate();
 };
 
 using Codepoint = i32;
@@ -256,9 +259,9 @@ struct Atlas {
 		return width != 0 && height != 0;
 	}
 
-	Font* add_font(Context* context, const char* filename, f32 pixel_height);
-	Icon* add_icon(Context* context, const char* name, byte* pixels_rgba, u32 width, u32 height);
-	bool build(Context* context);
+	Font* add_font(const char* filename, f32 pixel_height);
+	Icon* add_icon(const char* name, byte* pixels_rgba, u32 width, u32 height);
+	bool build();
 };
 
 struct Style {
@@ -339,21 +342,21 @@ struct Painter {
 	u32 clip_rect_stack_top;
 
 	// Call on begin_panel
-	void _start_painter(Context* context);
+	void _start_painter();
 	// Call when returning to a previous panel
-	void _restart_painter(Context* context);
-	void _push_command(Context* context);
+	void _restart_painter();
+	void _push_command();
 
-	void push_clip_rect(Context* context, Rect rect);
-	void pop_clip_rect(Context* context);
+	void push_clip_rect(Rect rect);
+	void pop_clip_rect();
 	Rect get_clip_rect();
 
 	//void draw_triangle();
-	void draw_rectangle(Context* context, v2 pos, v2 size, Color color, v2 uv1, v2 uv2);
-	void draw_rectangle(Context* context, v2 pos, v2 size, Color color);
-	void draw_rectangle(Context* context, Rect rect, Color color);
-	void draw_rectangle_gradient(Context* context, v2 pos, v2 size, Color c1, Color c2, Color c3, Color c4);
-	void draw_rectangle_gradient(Context* context, Rect rect, Color c1, Color c2, Color c3, Color c4);
+	void draw_rectangle(v2 pos, v2 size, Color color, v2 uv1, v2 uv2);
+	void draw_rectangle(v2 pos, v2 size, Color color);
+	void draw_rectangle(Rect rect, Color color);
+	void draw_rectangle_gradient(v2 pos, v2 size, Color c1, Color c2, Color c3, Color c4);
+	void draw_rectangle_gradient(Rect rect, Color c1, Color c2, Color c3, Color c4);
 
 	TriangleStripMode triangle_strip_mode;
 	// Count of vertices
@@ -363,31 +366,31 @@ struct Painter {
 	// Triangle strips
 	void begin_triangle_strip();
 	void end_triangle_strip();
-	void add_strip_triangle(Context* context, v2 pos, Color color, v2 uv);
-	void add_strip_triangle(Context* context, v2 pos, Color color);
+	void add_strip_triangle(v2 pos, Color color, v2 uv);
+	void add_strip_triangle(v2 pos, Color color);
 
 	// Some way to render convex shapes (circles and such)
 	void begin_convex_strip();
 	void end_convex_strip();
 
 	// Returns the width of the rendered text
-	f32 draw_text(Context* context, Font* font, const char* text, v2 pos, f32 spacing, Color color);
+	f32 draw_text(Font* font, const char* text, v2 pos, f32 spacing, Color color);
 	// Returns the width of the rendered text
-	f32 draw_text(Context* context, Font* font, const char* text, usize text_length, v2 pos, f32 spacing, Color color);
+	f32 draw_text(Font* font, const char* text, usize text_length, v2 pos, f32 spacing, Color color);
 	// Will attempt to draw text in the center of the provided rectangle, if it doesn't fit, it replaces text
 	//   with dots (...) to still make it fit
 	// Returns true when original text fits, returns false when it doesn't
-	bool draw_text_fit(Context* context, Font* font, const char* text, Rect rect, f32 spacing, Color color, i8 h_align = 0, i8 v_align = 0);
+	bool draw_text_fit(Font* font, const char* text, Rect rect, f32 spacing, Color color, i8 h_align = 0, i8 v_align = 0);
 
-	void draw_circle(Context* context, v2 pos, f32 size, f32 t, Color color);
+	void draw_circle(v2 pos, f32 size, f32 t, Color color);
 
-	void draw_round_corner(Context* context, v2 pos, v2 size, bool is_right, bool is_bottom, Color color);
+	void draw_round_corner(v2 pos, v2 size, bool is_right, bool is_bottom, Color color);
 	// corner_size = [top_left, top_right, bottom_left, bottom_right]
-	void draw_rounded_rectangle(Context* context, v2 pos, v2 size, f32 corner_size[4], Color color);
-	void draw_rounded_rectangle(Context* context, Rect rect, f32 corner_size[4], Color color);
+	void draw_rounded_rectangle(v2 pos, v2 size, f32 corner_size[4], Color color);
+	void draw_rounded_rectangle(Rect rect, f32 corner_size[4], Color color);
 };
 
-void rl_render(Context* context);
+void rl_render();
 
 
 // Returned by
@@ -579,6 +582,7 @@ struct Context {
 	bool mouse_dragging;
 
 	u32 current_frame;
+	f32 delta_time;
 
 	// Cleared on shutdown
 	Arena arena;
@@ -615,71 +619,72 @@ struct Context {
 
 // Core
 
-// TODO: Replace with init() and deinit() (or end)
-Context* create_context();
-void begin_frame(Context* context);
-void end_frame(Context* context);
+Context* init();
+void deinit();
+Context* get_context();
+void begin_frame(f32 delta_time);
+void end_frame();
 
 // To check if any ui is hovered over with the mouse
-bool is_anything_hovered(Context* context);
+bool is_anything_hovered();
 
-ID get_id(Context* context, const char* string);
-ID get_id(Context* context, i32 i);
-ID get_id(Context* context, void* ptr);
-void push_id(Context* context, const char* string);
-void push_id(Context* context, i32 i);
-void push_id(Context* context, void* ptr);
-void pop_id(Context* context);
+ID get_id(const char* string);
+ID get_id(i32 i);
+ID get_id(void* ptr);
+void push_id(const char* string);
+void push_id(i32 i);
+void push_id(void* ptr);
+void pop_id();
 
-void push_style(Context* context, const Style& style);
-void pop_style(Context* context);
-const Style& get_style(Context* context);
-void set_default_style(Context* context, const Style& style);
+void push_style(const Style& style);
+void pop_style();
+const Style& get_style();
+void set_default_style(const Style& style);
 
-bool begin_layout(Context* context, const Layout& layout);
-void end_layout(Context* context);
-Layout& get_layout(Context* context);
-bool layout_horizontal(Context* context, f32 height);
-bool layout_vertical(Context* context, f32 width);
-void same_line(Context* context);
+bool begin_layout(const Layout& layout);
+void end_layout();
+Layout& get_layout();
+bool layout_horizontal(f32 height);
+bool layout_vertical(f32 width);
+void same_line();
 
-Panel* get_panel(Context* context, ID id);
-Panel* get_current_panel(Context* context);
-bool begin_panel(Context* context, const char* name, Rect rect, PanelFlag flags);
-void end_panel(Context* context);
-void move_panel_to_front(Context* context, Panel* panel);
+Panel* get_panel(ID id);
+Panel* get_current_panel();
+bool begin_panel(const char* name, Rect rect, PanelFlag flags);
+void end_panel();
+void move_panel_to_front(Panel* panel);
 
 
 // Gets the retained data, or create it if it doesn't exist
-RetainedData* get_retained_data(Context* context, ID id);
+RetainedData* get_retained_data(ID id);
 
-v2 layout_next(Context* context);
+v2 layout_next();
 
-InputResult handle_element_input(Context* context, Rect rect, ID id, bool enable_drag = false, bool ignore_clip = false);
-bool mouse_pressed(Context* context, int button = 0);
-bool mouse_released(Context* context, int button = 0);
-bool mouse_down(Context* context, int button = 0);
-v2 mouse_pos(Context* context);
+InputResult handle_element_input(Rect rect, ID id, bool enable_drag = false, bool ignore_clip = false);
+bool mouse_pressed(int button = 0);
+bool mouse_released(int button = 0);
+bool mouse_down(int button = 0);
+v2 mouse_pos();
 
-void select_element(Context* context, ID id);
+void select_element(ID id);
 
 
 
 // Builder code
 
-InputResult button(Context* context, const char* name);
-InputResult checkbox(Context* context, const char* name, bool* value);
-InputResult radio_button(Context* context, const char* name, int option, int* selected);
-InputResult drag_value(Context* context, const char* name, f32* value);
-bool collapse_header(Context* context, const char* name);
-void text(Context* context, const char* text, bool wrap = false);
-bool input_text(Context* context, char* buffer, usize buffer_size, bool wrap = false);
+InputResult button(const char* name);
+InputResult checkbox(const char* name, bool* value);
+InputResult radio_button(const char* name, int option, int* selected);
+InputResult drag_value(const char* name, f32* value);
+bool collapse_header(const char* name);
+void text(const char* text, bool wrap = false);
+bool input_text(char* buffer, usize buffer_size, bool wrap = false);
 
 
 
 // Debug
 
-void debug_menu(Context* context);
+void debug_menu();
 
 
 }
