@@ -6,40 +6,42 @@
 
 namespace lgui {
 
+const usize VERTEX_SIZE_BYTES = sizeof(f32) * 4 + sizeof(u32);
+const usize VERTEX_SIZE_FLOATS = 5;
+
 void Painter::_push_command()
 {
 	Context* context = get_context();
 
 	// Only push the command if it has any vertices
-	if (current_command.vertex_start == current_command.vertex_end ||
-		current_command.index_start == current_command.index_end)
+	if (current_command->vertex_start == current_command->vertex_end ||
+		current_command->index_start == current_command->index_end)
 	{
 		return;
 	}
 
 	// Allocate command
-	//DrawCommand* command = context->arena.allocate_one<DrawCommand>();
-	DrawCommand* command = context->temp_arena.allocate_one<DrawCommand>();
-	*command = current_command;
+	DrawCommand* command = current_command;
 	command->prev = last_command;
 
 	// Update global buffer index
-	//context->draw_buffer.vertex_buffer_top += current_command.vertex_end - current_command.vertex_start;
-	//context->draw_buffer.index_buffer_top += current_command.index_end - current_command.index_start;
-	LGUI_ASSERT(context->draw_buffer.vertex_buffer_top == current_command.vertex_start,
+	LGUI_ASSERT(context->draw_buffer.vertex_buffer_top == current_command->vertex_start,
 		"Draw buffer has been written to before this command was completed");
-	LGUI_ASSERT(context->draw_buffer.index_buffer_top == current_command.index_start,
+	LGUI_ASSERT(context->draw_buffer.index_buffer_top == current_command->index_start,
 		"Draw buffer has been written to before this command was completed");
-	context->draw_buffer.vertex_buffer_top = current_command.vertex_end;
-	context->draw_buffer.index_buffer_top = current_command.index_end;
+	context->draw_buffer.vertex_buffer_top = current_command->vertex_end;
+	context->draw_buffer.index_buffer_top = current_command->index_end;
 
 	// Reset current command
-	current_command = DrawCommand{};
-	current_command.clip_rect = command->clip_rect;
-	current_command.vertex_start = context->draw_buffer.vertex_buffer_top;
-	current_command.vertex_end = current_command.vertex_start;
-	current_command.index_start = context->draw_buffer.index_buffer_top;
-	current_command.index_end = current_command.index_start;
+	current_command = context->temp_arena.allocate_one<DrawCommand>();
+	command->next = current_command;
+	current_command->prev = command;
+	current_command->clip_rect = command->clip_rect;
+	current_command->vertex_start = context->draw_buffer.vertex_buffer_top;
+	current_command->vertex_end = current_command->vertex_start;
+	current_command->index_start = context->draw_buffer.index_buffer_top;
+	current_command->index_end = current_command->index_start;
+	current_command->texture_id = command->texture_id;
 
 	if (!first_command)
 	{
@@ -66,11 +68,12 @@ void Painter::_start_painter()
 		first_command = nullptr;
 		last_command = nullptr;
 
-		current_command.clip_rect = get_clip_rect();
-		current_command.vertex_start = context->draw_buffer.vertex_buffer_top;
-		current_command.vertex_end = current_command.vertex_start;
-		current_command.index_start = context->draw_buffer.index_buffer_top;
-		current_command.index_end = current_command.index_start;
+		current_command = context->temp_arena.allocate_one<DrawCommand>();
+		current_command->clip_rect = get_clip_rect();
+		current_command->vertex_start = context->draw_buffer.vertex_buffer_top;
+		current_command->vertex_end = current_command->vertex_start;
+		current_command->index_start = context->draw_buffer.index_buffer_top;
+		current_command->index_end = current_command->index_start;
 	}
 	else
 	{
@@ -80,12 +83,59 @@ void Painter::_start_painter()
 
 void Painter::_restart_painter()
 {
+	// Let's try this out
+	//_start_painter();
+
 	Context* context = get_context();
 
-	current_command.vertex_start = context->draw_buffer.vertex_buffer_top;
-	current_command.vertex_end = current_command.vertex_start;
-	current_command.index_start = context->draw_buffer.index_buffer_top;
-	current_command.index_end = current_command.index_start;
+	DrawCommand* new_command = context->temp_arena.allocate_one<DrawCommand>();
+	new_command->vertex_start = context->draw_buffer.vertex_buffer_top;
+	new_command->vertex_end = current_command->vertex_start;
+	new_command->index_start = context->draw_buffer.index_buffer_top;
+	new_command->index_end = current_command->index_start;
+	current_command = new_command;
+}
+
+DrawCommandPoint Painter::_get_draw_command_point()
+{
+	DrawCommandPoint ret{};
+	ret.command = current_command;
+	ret.index_pos = current_command->index_end;
+	ret.vertex_pos = current_command->vertex_end;
+	return ret;
+}
+
+static void _move_draw_command_vertices(DrawCommand* it, usize vertex_start, usize vertex_end, v2 movement)
+{
+	DrawBuffer* buffer = &get_context()->draw_buffer;
+
+	for (usize i = vertex_start; i < vertex_end; i += VERTEX_SIZE_FLOATS)
+	{
+		buffer->vertex_buffer[i + 0] += movement.x;
+		buffer->vertex_buffer[i + 1] += movement.y;
+	}
+}
+
+void Painter::_move_vertices_in_range(DrawCommandPoint p1, DrawCommandPoint p2, v2 movement)
+{
+	if (p1.command == p2.command)
+	{
+		_move_draw_command_vertices(p1.command, p1.vertex_pos, p2.vertex_pos, movement);
+	}
+	else if (p1.command->next == p2.command)
+	{
+		_move_draw_command_vertices(p1.command, p1.vertex_pos, p1.command->vertex_end, movement);
+		_move_draw_command_vertices(p2.command, p2.command->vertex_start, p2.vertex_pos, movement);
+	}
+	else
+	{
+		_move_draw_command_vertices(p1.command, p1.vertex_pos, p1.command->vertex_end, movement);
+		for (DrawCommand* it = p1.command->next; it != p2.command; it = it->next)
+		{
+			LGUI_ASSERT(it, "Invalid DrawCommandPoint range, p2 might not be in the same painter as p1, or behind p1");
+		}
+		_move_draw_command_vertices(p2.command, p2.command->vertex_start, p2.vertex_pos, movement);
+	}
 }
 
 void Painter::push_clip_rect(Rect rect)
@@ -99,7 +149,7 @@ void Painter::push_clip_rect(Rect rect)
 	clip_rect_stack[clip_rect_stack_top] = new_rect;
 	++clip_rect_stack_top;
 
-	current_command.clip_rect = new_rect;
+	current_command->clip_rect = new_rect;
 }
 
 void Painter::pop_clip_rect()
@@ -110,7 +160,7 @@ void Painter::pop_clip_rect()
 
 	--clip_rect_stack_top;
 	Rect clip = get_clip_rect();
-	current_command.clip_rect = clip;
+	current_command->clip_rect = clip;
 }
 
 Rect Painter::get_clip_rect()
@@ -118,9 +168,6 @@ Rect Painter::get_clip_rect()
 	// TODO: Map this to screen size
 	return clip_rect_stack_top > 0 ? clip_rect_stack[clip_rect_stack_top - 1] : Rect{{0, 0}, {1920, 1080}};
 }
-
-const usize VERTEX_SIZE_BYTES = sizeof(f32) * 4 + sizeof(u32);
-const usize VERTEX_SIZE_FLOATS = 5;
 
 struct ColorU32 {
 	union {
@@ -135,7 +182,7 @@ inline static bool has_vertex_space(Painter* painter, usize vert_count)
 {
 	Context* context = get_context();
 
-	return painter->current_command.vertex_end + vert_count * VERTEX_SIZE_FLOATS <
+	return painter->current_command->vertex_end + vert_count * VERTEX_SIZE_FLOATS <
 		context->draw_buffer.vertex_buffer_length;
 }
 
@@ -144,7 +191,7 @@ inline static bool has_index_space(Painter* painter, usize tri_count)
 {
 	Context* context = get_context();
 
-	return painter->current_command.index_end + tri_count < context->draw_buffer.index_buffer_length;
+	return painter->current_command->index_end + tri_count < context->draw_buffer.index_buffer_length;
 }
 
 // Returns index
@@ -152,7 +199,7 @@ inline static DrawIndex push_vertex(Painter* painter, v2 pos, v2 uv, ColorU32 co
 {
 	Context* context = get_context();
 
-	usize index = painter->current_command.vertex_end;
+	usize index = painter->current_command->vertex_end;
 	LGUI_ASSERT(index % VERTEX_SIZE_FLOATS == 0, "vertex buffer has incorrect number of floats");
 	f32* ptr = context->draw_buffer.vertex_buffer + index;
 	ptr[0] = pos.x;
@@ -160,7 +207,7 @@ inline static DrawIndex push_vertex(Painter* painter, v2 pos, v2 uv, ColorU32 co
 	ptr[2] = uv.x;
 	ptr[3] = uv.y;
 	ptr[4] = color.as_float;
-	painter->current_command.vertex_end += VERTEX_SIZE_FLOATS;
+	painter->current_command->vertex_end += VERTEX_SIZE_FLOATS;
 	auto ret = index / VERTEX_SIZE_FLOATS;
 	// This shouldn't actually happen if the API is used properly, because we check for space before adding vertices
 	LGUI_ASSERT(ret < DRAW_INDEX_MAX, "The returned index is higher than the possible amount of vertices, change the draw index type");
@@ -171,11 +218,11 @@ inline static void push_index_triangle(Painter* painter, DrawIndex i1, DrawIndex
 {
 	Context* context = get_context();
 
-	DrawIndex* ptr = context->draw_buffer.index_buffer + painter->current_command.index_end;
+	DrawIndex* ptr = context->draw_buffer.index_buffer + painter->current_command->index_end;
 	ptr[0] = i1;
 	ptr[1] = i2;
 	ptr[2] = i3;
-	painter->current_command.index_end += 3;
+	painter->current_command->index_end += 3;
 }
 
 inline static ColorU32 rgba(u8 r, u8 g, u8 b, u8 a)

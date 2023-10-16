@@ -165,8 +165,8 @@ struct RetainedData {
 	i32 value_int;
 	i32 value_int2;
 
-	void update_t_linear(bool hover, bool active, f32 dt, f32 duration = 0.25f);
-	void update_t_towards(bool hover, bool active, f32 dt, f32 rate = 10.f);
+	void update_t_linear(bool hover, bool active, f32 duration = 0.25f);
+	void update_t_towards(bool hover, bool active, f32 rate = 10.f);
 };
 
 struct Color {
@@ -185,6 +185,13 @@ struct DrawCommand {
 	usize index_start;
 	usize index_end;
 	TextureID texture_id;
+};
+
+// A point in the painters drawing sequence
+struct DrawCommandPoint {
+	DrawCommand* command;
+	usize vertex_pos;
+	usize index_pos;
 };
 
 struct Context;
@@ -284,12 +291,21 @@ struct Style {
 	f32 line_height() const { return default_font->height + line_padding * 2.f; }
 };
 
+enum LayoutFlags {
+	LayoutFlag_ScrollX,
+	LayoutFlag_ScrollY,
+	LayoutFlag_Clip,
+};
+
 struct Layout {
 	// Required if the layout has retained state
+	// Retained data stores the size of the layout, which is needed to correctly calculate widget positions for input
 	ID id;
+	RetainedData* retained_data;
 
 	bool is_horizontal;
 	bool reverse;
+	bool is_static;
 
 	// Minimum size on the axis (horizontal or vertical) in pixels
 	f32 min_line_size;
@@ -297,6 +313,9 @@ struct Layout {
 	f32 spacing;
 	// The space between elements on the cross axis, used for same_line elements
 	f32 cross_spacing;
+
+	// TODO: Implement
+	v2 padding;
 
 	// Alignment within the line
 	// -1 = min, 0 = center, 1 = max
@@ -318,7 +337,18 @@ struct Layout {
 	// When true, use the previous line for the next element
 	bool same_line;
 
+	// The drawcommand state when this layout started
+	// Used to iterate over draw command and move elements
+	DrawCommandPoint draw_command_point;
+	
 	Rect allocate(v2 size);
+
+	Rect get_cursor_rect();
+	// Pushes the cursor of this layout to match the 
+	void end_child_layout(Layout* child);
+
+	// Get the full-size rectangle of the layout, including the cursor
+	Rect get_stretched_rect();
 };
 
 struct Panel;
@@ -334,7 +364,7 @@ enum TriangleStripMode {
 struct Painter {
 	DrawCommand* first_command;
 	DrawCommand* last_command;
-	DrawCommand current_command;
+	DrawCommand* current_command;
 
 	u32 frame_last_updated;
 
@@ -350,6 +380,9 @@ struct Painter {
 	void push_clip_rect(Rect rect);
 	void pop_clip_rect();
 	Rect get_clip_rect();
+
+	DrawCommandPoint _get_draw_command_point();
+	void _move_vertices_in_range(DrawCommandPoint p1, DrawCommandPoint p2, v2 movement);
 
 	//void draw_triangle();
 	void draw_rectangle(v2 pos, v2 size, Color color, v2 uv1, v2 uv2);
@@ -644,9 +677,15 @@ void set_default_style(const Style& style);
 bool begin_layout(const Layout& layout);
 void end_layout();
 Layout& get_layout();
+bool layout_static(ID id, Rect rect, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing, f32 cross_spacing, f32 min_line_size);
+bool layout_unknown(ID id, v2 size, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing, f32 cross_spacing, f32 min_line_size);
 bool layout_horizontal(f32 height);
 bool layout_vertical(f32 width);
 void same_line();
+void next_line_alignment(i8 h_align, i8 v_align);
+Rect layout_next(v2 size);
+f32 layout_width();
+f32 layout_height();
 
 Panel* get_panel(ID id);
 Panel* get_current_panel();
@@ -679,6 +718,9 @@ InputResult drag_value(const char* name, f32* value);
 bool collapse_header(const char* name);
 void text(const char* text, bool wrap = false);
 bool input_text(char* buffer, usize buffer_size, bool wrap = false);
+void separator();
+// Only works in vertical layout
+void separator_text(const char* text);
 
 
 

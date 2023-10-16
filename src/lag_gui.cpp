@@ -1252,6 +1252,8 @@ bool begin_panel(const char* name, Rect rect, PanelFlag flags)
 		open = false;
 	}
 
+	layout_static(4, panel->content, false, false, -1, 0, 1.f, 1.f, 20.f);
+
 	if (!open)
 	{
 		end_panel();
@@ -1264,6 +1266,8 @@ void end_panel()
 {
 	Panel* panel = get_current_panel();
 	Painter& painter = panel->get_painter();
+
+	end_layout();
 
 	panel->end_draw_pos = panel->draw_pos;
 	v2 draw_size = panel->end_draw_pos - panel->start_draw_pos;
@@ -1351,8 +1355,9 @@ void move_panel_to_front(Panel* panel)
 	context->last_depth_panel = panel;
 }
 
-void RetainedData::update_t_linear(bool hover, bool active, f32 dt, f32 duration)
+void RetainedData::update_t_linear(bool hover, bool active, f32 duration)
 {
+	f32 dt = get_context()->delta_time;
 	f32 hover_dir = hover ? 1.f : -1.f;
 	f32 active_dir = active ? 1.f : -1.f;
 
@@ -1362,8 +1367,9 @@ void RetainedData::update_t_linear(bool hover, bool active, f32 dt, f32 duration
 	active_t = LGUI_CLAMP(0.f, 1.f, active_t);
 }
 
-void RetainedData::update_t_towards(bool hover, bool active, f32 dt, f32 rate)
+void RetainedData::update_t_towards(bool hover, bool active, f32 rate)
 {
+	f32 dt = get_context()->delta_time;
 	f32 hover_goal = hover ? 1.f : 0.f;
 	f32 active_goal = active ? 1.f : 0.f;
 
@@ -1533,7 +1539,6 @@ static Color lerp_color(Color c1, Color c2, f32 t)
 InputResult button(const char* name)
 {
 	v2 pos = layout_next();
-	v2 size = v2{50, 30};
 	ID id = get_id(name);
 	RetainedData* retained = get_retained_data(id);
 	const Style& style = get_style();
@@ -1542,10 +1547,10 @@ InputResult button(const char* name)
 	auto& painter = get_current_panel()->get_painter();
 	Font* font = style.default_font;
 	f32 text_width = font->text_width(name, 0);
-	Rect rect = Rect::from_pos_size(pos, {text_width + 4, font->height});
+	Rect rect = layout_next({text_width + 4, font->height});
 
 	InputResult input = handle_element_input(rect, id);
-	retained->update_t_towards(input.hover, input.down, 0.016666f);
+	retained->update_t_towards(input.hover, input.down);
 	Color color = lerp_color(lerp_color(style.button_background, style.button_background_hover, retained->hover_t), style.button_background_down, retained->active_t);
 
 	// Rendering
@@ -1559,14 +1564,13 @@ InputResult button(const char* name)
 InputResult checkbox(const char* name, bool* value)
 {
 	v2 pos = layout_next();
-	v2 size = v2{50, 30};
 	ID id = get_id(name);
 	RetainedData* retained = get_retained_data(id);
 	const Style& style = get_style();
 
 	// Rect
 	auto& painter = get_current_panel()->get_painter();
-	Rect rect = Rect::from_pos_size(pos, {25, 25});
+	Rect rect = layout_next({style.line_height(), style.line_height()});
 
 	InputResult input = handle_element_input(rect, id);
 	if (input.pressed)
@@ -1574,7 +1578,7 @@ InputResult checkbox(const char* name, bool* value)
 		*value = !*value;
 	}
 
-	retained->update_t_towards(input.hover, *value, 0.016666f, 30);
+	retained->update_t_towards(input.hover, *value, 30);
 	Color color = lerp_color(style.button_background, style.button_background_hover, retained->hover_t);
 
 	// Rendering
@@ -1591,14 +1595,13 @@ InputResult checkbox(const char* name, bool* value)
 InputResult radio_button(const char* name, int option, int* selected)
 {
 	v2 pos = layout_next();
-	v2 size = v2{50, 30};
 	ID id = get_id(name);
 	RetainedData* retained = get_retained_data(id);
 	const Style& style = get_style();
 
 	// Rect
 	auto& painter = get_current_panel()->get_painter();
-	Rect rect = Rect::from_pos_size(pos, {25, 25});
+	Rect rect = layout_next({style.line_height(), style.line_height()});
 
 	InputResult input = handle_element_input(rect, id);
 	if (input.clicked)
@@ -1606,7 +1609,7 @@ InputResult radio_button(const char* name, int option, int* selected)
 		*selected = option;
 	}
 
-	retained->update_t_towards(input.hover, *selected == option, 0.016666f, 30);
+	retained->update_t_towards(input.hover, *selected == option, 30);
 	Color color = lerp_color(style.button_background, style.button_background_hover, retained->hover_t);
 
 	// Rendering
@@ -1623,7 +1626,6 @@ InputResult radio_button(const char* name, int option, int* selected)
 InputResult drag_value(const char* name, f32* value)
 {
 	v2 pos = layout_next();
-	v2 size = v2{50, 30};
 	ID id = get_id(name);
 	RetainedData* retained = get_retained_data(id);
 	const Style& style = get_style();
@@ -1636,7 +1638,7 @@ InputResult drag_value(const char* name, f32* value)
 	auto& painter = get_current_panel()->get_painter();
 	Font* font = style.default_font;
 	f32 text_width = font->text_width(text, 0);
-	Rect rect = Rect::from_pos_size(pos, {128, font->height});
+	Rect rect = layout_next({128, font->height});
 
 	InputResult input = handle_element_input(rect, id, true);
 	if (input.dragging && input.drag_delta.x != 0)
@@ -1644,7 +1646,7 @@ InputResult drag_value(const char* name, f32* value)
 		*value += input.drag_delta.x;
 	}
 
-	retained->update_t_towards(input.hover, input.down, 0.016666f);
+	retained->update_t_towards(input.hover, input.down);
 	Color color = lerp_color(lerp_color(style.button_background, style.button_background_hover, retained->hover_t), style.button_background_down, retained->active_t);
 
 	// Rendering
@@ -2131,7 +2133,7 @@ bool input_text(char* buffer, usize buffer_size, bool wrap)
 	Context* context = get_context();
 
 	usize len = strlen(buffer);
-	Rect rect = Rect::from_pos_size(layout_next(), v2{100, 30});
+	Rect rect = layout_next({100, 30});
 	bool ret = _input_text(12342, rect, buffer, buffer_size, &len, wrap);
 	buffer[len] = 0;
 	return ret;
@@ -2140,8 +2142,6 @@ bool input_text(char* buffer, usize buffer_size, bool wrap)
 bool collapse_header(const char* name)
 {
 	v2 pos = layout_next();
-	v2 size = v2{50, 30};
-	Color color = Color{0, 1, 0, 1};
 	ID id = get_id(name);
 	Panel* panel = get_current_panel();
 	RetainedData* retained = get_retained_data(id);
@@ -2151,7 +2151,7 @@ bool collapse_header(const char* name)
 	auto& painter = get_current_panel()->get_painter();
 	Font* font = style.default_font;
 	f32 text_width = font->text_width(name, 0);
-	Rect rect = Rect::from_pos_size(pos, {panel->content.width(), style.line_height() - 2});
+	Rect rect = layout_next({layout_width(), style.line_height() - 2});
 
 	InputResult input = handle_element_input(rect, id, true);
 	if (input.clicked)
@@ -2159,8 +2159,8 @@ bool collapse_header(const char* name)
 		retained->open = !retained->open;
 	}
 
-	retained->update_t_towards(input.hover, retained->open, 0.016666f);
-	color = lerp_color(lerp_color(style.button_background, style.button_background_hover, retained->hover_t), style.button_background_down, retained->active_t);
+	retained->update_t_towards(input.hover, retained->open);
+	Color color = lerp_color(lerp_color(style.button_background, style.button_background_hover, retained->hover_t), style.button_background_down, retained->active_t);
 
 	// Rendering
 	painter.draw_rectangle(rect, color);
@@ -2171,6 +2171,23 @@ bool collapse_header(const char* name)
 	painter.draw_text(font, name, text_rect.top_left, 0, {1, 1, 1, 1});
 
 	return retained->open;
+}
+
+void separator()
+{
+	v2 pos = layout_next();
+	Panel* panel = get_current_panel();
+	const Style& style = get_style();
+
+	// Rect
+	auto& painter = get_current_panel()->get_painter();
+	Font* font = style.default_font;
+	Rect rect = layout_next({layout_width(), style.line_height()});
+
+	// Rendering
+	Color color = style.window_outline;
+	f32 take = rect.height() / 10;
+	painter.draw_rectangle(rect.center_size({rect.width() - take, take}), color);
 }
 
 void DrawBuffer::allocate()
@@ -2206,61 +2223,25 @@ Rect allocate_line(Layout* layout, v2 size)
 	{
 		f32 height = layout->cross_axis_size;
 		f32 width = LGUI_MAX(layout->min_line_size, size.x);
+		f32 move_size = layout->reverse ? -1.f : 0.f;
 		Rect ret = Rect::from_pos_size(
-			layout->start + v2{layout->cursor, 0},
+			layout->start + v2{layout->cursor + width * move_size, 0},
 			{width, height}
 		);
-		layout->cursor += width + layout->spacing;
+		layout->cursor += (width + layout->spacing) * (layout->reverse ? -1.f : 1.f);
 		return ret;
 	}
 	else // Vertical
 	{
 		f32 width = layout->cross_axis_size;
 		f32 height = LGUI_MAX(layout->min_line_size, size.y);
+		f32 move_size = layout->reverse ? -1.f : 0.f;
 		Rect ret = Rect::from_pos_size(
-			layout->start + v2{0, layout->cursor},
+			layout->start + v2{0, layout->cursor + height * move_size},
 			{width, height}
 		);
-		layout->cursor += height + layout->spacing;
+		layout->cursor += (height + layout->spacing) * (layout->reverse ? -1.f : 1.f);
 		return ret;
-	}
-}
-
-void layout_check_stretch_cross_axis(Layout* layout, Rect rect)
-{
-	if (layout->is_horizontal)
-	{
-		if (layout->reverse)
-		{
-			if (rect.top_left.x < layout->start.x - layout->max_size.x)
-			{
-				layout->max_size.x = layout->start.x - rect.top_left.x;
-			}
-		}
-		else
-		{
-			if (rect.bottom_right.x > layout->start.x + layout->max_size.x)
-			{
-				layout->max_size.x = rect.bottom_right.x - layout->start.x;
-			}
-		}
-	}
-	else // Vertical
-	{
-		if (layout->reverse)
-		{
-			if (rect.top_left.y < layout->start.y - layout->max_size.y)
-			{
-				layout->max_size.y = layout->start.y - rect.top_left.y;
-			}
-		}
-		else
-		{
-			if (rect.bottom_right.y > layout->start.y + layout->max_size.y)
-			{
-				layout->max_size.y = rect.bottom_right.y - layout->start.y;
-			}
-		}
 	}
 }
 
@@ -2322,13 +2303,72 @@ Rect Layout::allocate(v2 size)
 	}
 }
 
+Rect Layout::get_cursor_rect()
+{
+	if (is_horizontal)
+	{
+		return Rect::from_2_pos(start + v2{cursor, 0.f}, start + v2{cursor, max_size.y});
+	}
+	else
+	{
+		return Rect::from_2_pos(start + v2{0.f, cursor}, start + v2{max_size.x, cursor});
+	}
+}
+
+void Layout::end_child_layout(Layout* child)
+{
+	Rect child_rect = child->get_stretched_rect();
+	Rect current_cursor = get_cursor_rect();
+
+	// Move the child layout if applicable
+	if (!child->is_static)
+	{
+		// The vertices of this child layout needs to be moved
+		Rect new_pos = allocate(child_rect.size());
+		v2 movement = new_pos.top_left - child_rect.top_left;
+		const float min = 0.001f;
+
+		// Due to the offset value being updated, this most likely only runs the first time a panel is rendered
+		if (movement.length() > min)
+		{
+			Painter& painter = get_current_panel()->get_painter();
+			painter._move_vertices_in_range(child->draw_command_point, painter._get_draw_command_point(), movement);
+			printf("Updated Layout Vertices\n");
+		}
+
+		// Set offset for next time the layout is used
+		child->retained_data->value_v2 += v2{
+			LGUI_ABS(movement.x) < min ? 0.f : movement.x, 
+			LGUI_ABS(movement.y) < min ? 0.f : movement.y
+		};
+	}
+}
+
+Rect Layout::get_stretched_rect()
+{
+	// TODO: The stretched cross axis should actually also appear in here.
+	if (is_horizontal)
+	{
+		return Rect::from_2_pos(start, start + v2{cursor, max_size.y});
+	}
+	else
+	{
+		return Rect::from_2_pos(start, start + v2{max_size.x, cursor});
+	}
+}
+
+
 bool begin_layout(const Layout& layout)
 {
 	Context* context = get_context();
 
 	LGUI_ASSERT(context->layout_stack_top < LAYOUT_STACK_SIZE, "Layout stack is full");
-	context->layout_stack[context->layout_stack_top] = layout;
+	Layout& top = context->layout_stack[context->layout_stack_top];
+	top = layout;
 	++context->layout_stack_top;
+
+	top.draw_command_point = get_current_panel()->get_painter()._get_draw_command_point();
+
 	return true;
 }
 
@@ -2344,51 +2384,15 @@ void end_layout()
 {
 	Context* context = get_context();
 
-	Layout& pop_layout = get_layout();
 	LGUI_ASSERT(context->layout_stack_top > 0, "No layout on layout stack");
 	--context->layout_stack_top;
-	Layout& layout = get_layout();
 
-	// Update
-	v2 start_pos;
-	v2 end_pos;
-	if (pop_layout.is_horizontal)
+	if (context->layout_stack_top > 0)
 	{
-		start_pos = pop_layout.start;
-		end_pos = pop_layout.start + v2{pop_layout.cursor, pop_layout.cross_axis_size};
+		Layout& pop_layout = context->layout_stack[context->layout_stack_top]; // This is allowed
+		Layout& layout = get_layout();
+		layout.end_child_layout(&pop_layout);
 	}
-	else // Vertical
-	{
-		start_pos = pop_layout.start;
-		end_pos = pop_layout.start + v2{pop_layout.cross_axis_size, pop_layout.cursor};
-	}
-	Rect rect = Rect::from_2_pos(start_pos, end_pos);
-
-	if (layout.is_horizontal)
-	{
-		if (layout.reverse)
-		{
-			LGUI_ASSERT(false, "Reverse not supported right now");
-			//layout.cursor =
-		}
-		else
-		{
-			layout.cursor = rect.bottom_right.x - layout.start.x + layout.spacing;
-		}
-	}
-	else // Vertical
-	{
-		if (layout.reverse)
-		{
-			LGUI_ASSERT(false, "Reverse not supported right now");
-			//layout.cursor =
-		}
-		else
-		{
-			layout.cursor = rect.bottom_right.y - layout.start.y + layout.spacing;
-		}
-	}
-
 }
 
 v2 layout_cursor_pos(const Layout& layout)
@@ -2401,6 +2405,83 @@ v2 layout_cursor_pos(const Layout& layout)
 	{
 		return layout.start + v2{0, layout.cursor};
 	}
+}
+
+bool layout_unknown(ID id, v2 size, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing, f32 cross_spacing, f32 min_line_size)
+{
+	Layout push{};
+	push.max_size = size;
+	push.is_horizontal = horizontal;
+	push.reverse = reverse;
+	push.h_align = line_h_align;
+	push.v_align = line_v_align;
+	push.spacing = spacing;
+	push.cross_spacing = cross_spacing;
+	push.min_line_size = min_line_size > 0.f ? min_line_size : get_style().line_height();
+	if (push.max_size.y < push.min_line_size) push.max_size.y = push.min_line_size;
+	push.id = id;
+	push.retained_data = get_retained_data(id);
+
+	if (horizontal)
+	{
+		push.cross_axis_size = push.max_size.y;
+	}
+	else
+	{
+		push.cross_axis_size = push.max_size.x;
+	}
+
+	// Set (predict) start position
+	Rect cursor_rect = get_layout().get_cursor_rect();
+	push.start = cursor_rect.top_left + push.retained_data->value_v2;
+
+	return begin_layout(push);
+}
+
+bool layout_static(ID id, Rect rect, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing, f32 cross_spacing, f32 min_line_size)
+{
+	Layout push{};
+	push.max_size = rect.size();
+	push.is_horizontal = horizontal;
+	push.reverse = reverse;
+	push.is_static = true;
+	push.h_align = line_h_align;
+	push.v_align = line_v_align;
+	push.spacing = spacing;
+	push.cross_spacing = cross_spacing;
+	push.min_line_size = min_line_size > 0.f ? min_line_size : get_style().line_height();
+	push.id = id;
+	push.retained_data = get_retained_data(id);
+
+	if (horizontal)
+	{
+		push.cross_axis_size = push.max_size.y;
+
+		if (reverse)
+		{
+			push.start = rect.top_right();
+		}
+		else
+		{
+			push.start = rect.top_left;
+		}
+	}
+	else
+	{
+		push.cross_axis_size = push.max_size.x;
+
+		if (reverse)
+		{
+			push.start = rect.bottom_left();
+		}
+		else
+		{
+			push.start = rect.top_left;
+		}
+	}
+
+
+	return begin_layout(push);
 }
 
 bool layout_horizontal(f32 height)
@@ -2441,6 +2522,23 @@ bool layout_vertical(f32 width)
 
 void same_line()
 {
+	Layout& layout = get_layout();
+	layout.same_line = true;
+}
+
+Rect layout_next(v2 size)
+{
+	return get_layout().allocate(size);
+}
+
+f32 layout_width()
+{
+	return get_layout().max_size.x;
+}
+
+f32 layout_height()
+{
+	return get_layout().max_size.y;
 }
 
 

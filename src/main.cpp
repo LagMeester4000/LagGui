@@ -263,6 +263,11 @@ int main()
 	char text_buffer[32]{};
 	size_t text_buffer_size = 32;
 
+	bool test_layout_reverse = false;
+	bool test_layout_horizontal = false;
+	int test_layout_h_align = -1;
+	int test_layout_v_align = -1;
+
 	NoteArea area{};
 	area.scale = {1, 1};
 
@@ -284,6 +289,7 @@ int main()
 
 			lgui::begin_frame(GetFrameTime());
 
+			/*
 			// Stress test
 			for (int i = 0; i < 30; ++i)
 			{
@@ -294,7 +300,55 @@ int main()
 				}
 				lgui::pop_id();
 			}
+			*/
 
+			if (lgui::begin_panel("Layout test", lgui::Rect::from_pos_size(lgui::v2{100, 100}, lgui::v2{300, 300}), 0))
+			{
+				lgui::checkbox("Layout reverse", &test_layout_reverse);
+				lgui::checkbox("Layout horizontal", &test_layout_horizontal);
+
+				if (lgui::layout_unknown(11, { lgui::layout_width(), 25.f }, true, false, -1, 0, 0.f, 2.f, 0.f))
+				{
+					lgui::radio_button("Layout h_align -1", -1, &test_layout_h_align);
+					lgui::radio_button("Layout h_align 0", 0, &test_layout_h_align);
+					lgui::radio_button("Layout h_align 1", 1, &test_layout_h_align);
+					lgui::end_layout();
+				}
+				if (lgui::layout_unknown(12, { lgui::layout_width(), 25.f }, true, false, -1, 0, 0.f, 2.f, 0.f))
+				{
+					lgui::radio_button("Layout v_align -1", -1, &test_layout_v_align);
+					lgui::radio_button("Layout v_align 0", 0, &test_layout_v_align);
+					lgui::radio_button("Layout v_align 1", 1, &test_layout_v_align);
+					lgui::end_layout();
+				}
+
+				lgui::separator();
+
+				if (lgui::layout_unknown(10, { lgui::layout_width(), 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f, 2.f, 0.f))
+				{
+					// TODO: In horizontal mode, this button can jitter at some screen positions, not sure why
+					if (lgui::button("Button1").clicked)
+					{
+						printf("Button 1 pressed!\n");
+					}
+					/*if (lgui::button("Button2").clicked)
+					{
+						printf("Button 2 pressed!\n");
+					}
+					if (lgui::button("Button3").clicked)
+					{
+						printf("Button 3 pressed!\n");
+					}*/
+					lgui::checkbox("Button2", &test_value);
+					lgui::radio_button("Button3", 1, &test_radio_value);
+
+					lgui::end_layout();
+				}
+
+				lgui::end_panel();
+			}
+
+			/*
 			if (lgui::begin_panel("My Window", lgui::Rect::from_pos_size(lgui::v2{100, 100}, lgui::v2{300, 300}), 0))
 			{
 				if (lgui::button("Button1").clicked)
@@ -309,17 +363,10 @@ int main()
 
 				lgui::checkbox("Checkbox", &test_value);
 
-				{
-					lgui::Painter& painter = lgui::get_current_panel()->get_painter();
-					/*if (lgui::layout_vertical(context, 300))
-					{
-						painter.draw_rectangle(context, lgui::get_layout(context).allocate({10, 10}), {1.f, 0.f, 0.f, 0.f});
-						lgui::end_layout(context);
-					}*/
-				}
-
 				lgui::end_panel();
 			}
+			*/
+
 
 			if (lgui::begin_panel("Other Window", lgui::Rect::from_pos_size(lgui::v2{300, 100}, lgui::v2{300, 500}), 0))
 			{
@@ -368,9 +415,9 @@ int main()
 
 			//lgui::debug_menu(context);
 
-			area_test(context, area);
+			//area_test(context, area);
 
-			ast_update(context);
+			//ast_update(context);
 
 			lgui::end_frame();
 
