@@ -244,6 +244,7 @@ int main()
 	lgui::Style style{};
 	style.default_font = font;
 	style.line_padding = 4.f;
+	style.default_layout_spacing = 2.f;
 	style.window_outline = GREY(0.15f);
 	style.window_background = GREY(0.3f);
 	style.window_title_background = GREY(0.2f);
@@ -267,6 +268,8 @@ int main()
 	bool test_layout_horizontal = false;
 	int test_layout_h_align = -1;
 	int test_layout_v_align = -1;
+	bool test_layout_enable = false;
+	int test_layout_count = 0;
 
 	NoteArea area{};
 	area.scale = {1, 1};
@@ -302,20 +305,56 @@ int main()
 			}
 			*/
 
-			if (lgui::begin_panel("Layout test", lgui::Rect::from_pos_size(lgui::v2{100, 100}, lgui::v2{300, 300}), 0))
+			if (lgui::begin_panel("Layout test", lgui::Rect::from_pos_size(lgui::v2{100, 100}, lgui::v2{350, 350}), 0))
 			{
-				lgui::checkbox("Layout reverse", &test_layout_reverse);
-				lgui::checkbox("Layout horizontal", &test_layout_horizontal);
-
-				if (lgui::layout_unknown(11, { lgui::layout_width(), 25.f }, true, false, -1, 0, 0.f, 2.f, 0.f))
+				if (lgui::layout_line(-1))
 				{
+					lgui::checkbox("Layout reverse", &test_layout_reverse);
+					lgui::text("Layout reverse");
+					lgui::end_layout();
+				}
+				if (lgui::layout_line(-1))
+				{
+					lgui::checkbox("Layout horizontal", &test_layout_horizontal);
+					lgui::text("Layout horizontal");
+					lgui::end_layout();
+				}
+				if (lgui::layout_line(-1))
+				{
+					lgui::checkbox("layout enable", &test_layout_enable);
+					lgui::text("Layout enable");
+					lgui::end_layout();
+				}
+				if (lgui::layout_line(-1))
+				{
+					if (lgui::button("-").clicked && test_layout_count > 0)
+					{
+						--test_layout_count;
+					}
+					if (lgui::button("+").clicked)
+					{
+						++test_layout_count;
+					}
+
+					const int buffer_size = 32;
+					char buffer[buffer_size]{};
+					snprintf(buffer, buffer_size, "Layout count (%d)", test_layout_count);
+					lgui::text(buffer);
+
+					lgui::end_layout();
+				}
+
+				if (lgui::layout_line(-1))
+				{
+					lgui::text("Layout h_align: ");
 					lgui::radio_button("Layout h_align -1", -1, &test_layout_h_align);
 					lgui::radio_button("Layout h_align 0", 0, &test_layout_h_align);
 					lgui::radio_button("Layout h_align 1", 1, &test_layout_h_align);
 					lgui::end_layout();
 				}
-				if (lgui::layout_unknown(12, { lgui::layout_width(), 25.f }, true, false, -1, 0, 0.f, 2.f, 0.f))
+				if (lgui::layout_line(-1))
 				{
+					lgui::text("Layout v_align: ");
 					lgui::radio_button("Layout v_align -1", -1, &test_layout_v_align);
 					lgui::radio_button("Layout v_align 0", 0, &test_layout_v_align);
 					lgui::radio_button("Layout v_align 1", 1, &test_layout_v_align);
@@ -324,7 +363,9 @@ int main()
 
 				lgui::separator();
 
-				if (lgui::layout_unknown(10, { lgui::layout_width(), 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f, 2.f, 0.f))
+				lgui::set_next_layout_background({0.f, 0.f, 0.f, 1.f});
+				if (test_layout_enable && lgui::layout_unknown(10, { lgui::layout_width(), 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f))
+				//if (test_layout_enable && lgui::layout_unknown(10, { 0.f, 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f))
 				{
 					// TODO: In horizontal mode, this button can jitter at some screen positions, not sure why
 					if (lgui::button("Button1").clicked)
@@ -341,6 +382,19 @@ int main()
 					}*/
 					lgui::checkbox("Button2", &test_value);
 					lgui::radio_button("Button3", 1, &test_radio_value);
+					
+					for (int i = 0; i < test_layout_count; ++i)
+					{
+						lgui::push_id(i);
+
+						if (lgui::button("Button1").clicked)
+						{
+							printf("Button 1 pressed!\n");
+						}
+						lgui::radio_button("Button3", 1, &test_radio_value);
+
+						lgui::pop_id();
+					}
 
 					lgui::end_layout();
 				}
@@ -400,24 +454,23 @@ int main()
 					const char* text = "This is my text that will be cut off";
 					for (int i = -1; i < 2; ++i)
 					{
-						lgui::v2 pos = lgui::layout_next();
-						lgui::Rect rect = lgui::Rect::from_pos_size(pos, {5 + test_text_fit_value, 25});
+						lgui::Rect rect = lgui::layout_next({5 + test_text_fit_value, 25});
 						painter.draw_rectangle(rect, {0, 0, 0, 1});
 						painter.draw_text_fit(font, text, rect, 0, {1, 1, 1, 1}, i, 0);
 					}
 
-					lgui::v2 pos2 = lgui::layout_next();
-					painter.draw_text(font, text, pos2, 0, {1, 1, 1, 1});
+					Rect pos2 = lgui::layout_next({10, 10});
+					painter.draw_text(font, text, pos2.top_left, 0, {1, 1, 1, 1});
 				}
 
 				lgui::end_panel();
 			}
 
-			//lgui::debug_menu(context);
+			lgui::debug_menu();
 
-			//area_test(context, area);
+			//area_test(area);
 
-			//ast_update(context);
+			//ast_update();
 
 			lgui::end_frame();
 

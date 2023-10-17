@@ -162,6 +162,7 @@ struct RetainedData {
 	// State
 	bool open;
 	v2 pos;
+	Rect rect;
 	v2 value_v2;
 	i32 value_int;
 	i32 value_int2;
@@ -276,6 +277,7 @@ struct Style {
 	Font* default_font;
 
 	f32 line_padding; // Line padding on top of font size
+	f32 default_layout_spacing;
 
 	Color window_background;
 	Color window_outline;
@@ -302,7 +304,7 @@ enum LayoutFlags {
 	LayoutFlag_ScrollX = 1 << 6,
 	LayoutFlag_ScrollY = 1 << 7,
 	LayoutFlag_Clip = 1 << 8,
-	//LayoutFlag_DrawBackground = 1 << 9,
+	LayoutFlag_DrawBackground = 1 << 9,
 };
 
 struct Layout {
@@ -312,13 +314,11 @@ struct Layout {
 	RetainedData* retained_data;
 
 	u32 flags;
+	// Counter for generating IDs
+	i32 counter;
 
-	// Minimum size on the axis (horizontal or vertical) in pixels
-	f32 min_line_size;
 	// The space between elements on the axis
 	f32 spacing;
-	// The space between elements on the cross axis, used for same_line elements
-	f32 cross_spacing;
 
 	// TODO: Implement
 	v2 padding;
@@ -337,6 +337,8 @@ struct Layout {
 	f32 cross_axis_max;
 
 	v2 max_size;
+	// The size used when creating the layout
+	v2 original_size;
 
 	// Last allocated full width or height line, with a cut in it from the allocation
 	Rect prev_line;
@@ -346,6 +348,12 @@ struct Layout {
 	// The drawcommand state when this layout started
 	// Used to iterate over draw command and move elements
 	DrawCommandPoint draw_command_point;
+
+	// Background
+	bool background_has_outline;
+	f32 background_outline_size;
+	Color background_colors[8];
+	DrawCommandPoint background_draw_point;
 
 	Rect allocate(v2 size);
 
@@ -433,6 +441,11 @@ struct Painter {
 	// corner_size = [top_left, top_right, bottom_left, bottom_right]
 	void draw_rounded_rectangle(v2 pos, v2 size, f32 corner_size[4], Color color);
 	void draw_rounded_rectangle(Rect rect, f32 corner_size[4], Color color);
+
+	// Retroactive drawing
+	DrawCommandPoint retroactive_allocate_rectangle(bool has_outline);
+	// Requires collor array of size 4, or 8 if it has an outline
+	void retroactive_draw_rectangle(DrawCommandPoint point, bool has_outline, v2 pos, v2 size, Color* colors, f32 outline_size = 0.f);
 };
 
 void rl_render();
@@ -653,6 +666,10 @@ struct Context {
 	// Layout
 	Layout layout_stack[LAYOUT_STACK_SIZE];
 	u32 layout_stack_top;
+	bool layout_next_draw_background;
+	bool layout_background_has_outline;
+	f32 layout_background_outline_size;
+	Color layout_background_colors[8];
 
 	// Panel lookup
 	// Maps ID to panel
@@ -662,6 +679,8 @@ struct Context {
 	Atlas atlas;
 };
 
+
+
 // Core
 
 Context* init();
@@ -670,8 +689,10 @@ Context* get_context();
 void begin_frame(f32 delta_time);
 void end_frame();
 
+
 // To check if any ui is hovered over with the mouse
 bool is_anything_hovered();
+
 
 ID get_id(const char* string);
 ID get_id(i32 i);
@@ -679,25 +700,42 @@ ID get_id(void* ptr);
 void push_id(const char* string);
 void push_id(i32 i);
 void push_id(void* ptr);
+void push_id_raw(ID id);
 void pop_id();
+
 
 void push_style(const Style& style);
 void pop_style();
 const Style& get_style();
 void set_default_style(const Style& style);
 
+
 bool begin_layout(const Layout& layout);
 void end_layout();
-Layout& get_layout();
-bool layout_static(ID id, Rect rect, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing, f32 cross_spacing, f32 min_line_size);
-bool layout_unknown(ID id, v2 size, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing, f32 cross_spacing, f32 min_line_size);
-bool layout_horizontal(f32 height);
-bool layout_vertical(f32 width);
-void same_line();
-void next_line_alignment(i8 h_align, i8 v_align);
 Rect layout_next(v2 size);
+Layout& get_layout();
+
+bool layout_static(ID id, Rect rect, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing);
+bool layout_unknown(ID id, v2 size, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing);
+bool layout_horizontal(i8 h_align = -1, i8 v_align = -1, bool reverse = false, f32 spacing = -1.f, v2 size = {0.f, 0.f});
+bool layout_vertical(i8 h_align = -1, i8 v_align = -1, bool reverse = false, f32 spacing = -1.f, v2 size = {0.f, 0.f});
+// Horizontal layout with the height of a line and the width of the layout
+bool layout_line(i8 h_align, i8 v_align = 0, bool reverse = false, f32 spacing = -1.f);
+
+// Layout macro helpers (you don't have to use these if you don't want to)
+#define LGUI_H_LAYOUT(...) LGUI_DEFER_LOOP(lgui::layout_horizontal(__VA_ARGS__), lgui::end_layout())
+#define LGUI_V_LAYOUT(...) LGUI_DEFER_LOOP(lgui::layout_vertical(__VA_ARGS__), lgui::end_layout())
+#define LGUI_LINE_LAYOUT(...) LGUI_DEFER_LOOP(lgui::layout_line(__VA_ARGS__), lgui::end_layout())
+
+// Generate an ID based on position in the layout
+ID layout_generate_id();
 f32 layout_width();
 f32 layout_height();
+
+void set_next_layout_background(Color color_in[4], bool outline, Color color_outline[4], f32 outline_size);
+void set_next_layout_background(Color color, Color outline_color, f32 outline_size);
+void set_next_layout_background(Color color);
+
 
 Panel* get_panel(ID id);
 Panel* get_current_panel();
@@ -710,13 +748,13 @@ Painter& get_painter();
 // Gets the retained data, or create it if it doesn't exist
 RetainedData* get_retained_data(ID id);
 
-v2 layout_next();
 
 InputResult handle_element_input(Rect rect, ID id, bool enable_drag = false, bool ignore_clip = false);
 bool mouse_pressed(int button = 0);
 bool mouse_released(int button = 0);
 bool mouse_down(int button = 0);
 v2 mouse_pos();
+
 
 void select_element(ID id);
 

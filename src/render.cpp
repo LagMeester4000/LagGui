@@ -214,6 +214,21 @@ inline static DrawIndex push_vertex(Painter* painter, v2 pos, v2 uv, ColorU32 co
 	return (DrawIndex)ret;
 }
 
+inline static void write_vertex(usize* vertex_index, v2 pos, v2 uv, ColorU32 color)
+{
+	Context* context = get_context();
+
+	usize index = *vertex_index;
+	LGUI_ASSERT(index % VERTEX_SIZE_FLOATS == 0, "vertex buffer has incorrect number of floats");
+	f32* ptr = context->draw_buffer.vertex_buffer + index;
+	ptr[0] = pos.x;
+	ptr[1] = pos.y;
+	ptr[2] = uv.x;
+	ptr[3] = uv.y;
+	ptr[4] = color.as_float;
+	*vertex_index += VERTEX_SIZE_FLOATS;
+}
+
 inline static void push_index_triangle(Painter* painter, DrawIndex i1, DrawIndex i2, DrawIndex i3)
 {
 	Context* context = get_context();
@@ -602,6 +617,67 @@ void Painter::draw_rounded_rectangle(v2 pos, v2 size, f32 corner_size[4], Color 
 {
 
 }*/
+
+DrawCommandPoint Painter::retroactive_allocate_rectangle(bool has_outline)
+{
+	usize count = has_outline ? 2 : 1;
+	if (!has_vertex_space(this, 4 * count) || !has_index_space(this, 2 * count))
+	{
+		return {};
+	}
+
+	DrawCommandPoint ret = _get_draw_command_point();
+
+	for (usize i = 0; i < count; ++i)
+	{
+		DrawIndex vx1 = push_vertex(this, {}, {}, {});
+		DrawIndex vx2 = push_vertex(this, {}, {}, {});
+		DrawIndex vx3 = push_vertex(this, {}, {}, {});
+		DrawIndex vx4 = push_vertex(this, {}, {}, {});
+
+		push_index_triangle(this, vx1, vx2, vx3);
+		push_index_triangle(this, vx2, vx3, vx4);
+	}
+
+	return ret;
+}
+
+void Painter::retroactive_draw_rectangle(DrawCommandPoint point, bool has_outline, v2 pos, v2 size, 
+	Color* colors, f32 outline_size)
+{
+	if (!point.command)
+	{
+		return;
+	}
+
+	usize vertex_index = point.vertex_pos;
+	usize color_index = 4;
+	if (has_outline)
+	{
+		write_vertex(&vertex_index, pos, v2{0.999f, 0.999f}, color32_from_f32_color(colors[color_index]));
+		++color_index;
+		write_vertex(&vertex_index, pos + v2{size.x, 0.f}, v2{0.999f, 0.999f}, color32_from_f32_color(colors[color_index]));
+		++color_index;
+		write_vertex(&vertex_index, pos + v2{0.f, size.y}, v2{0.999f, 0.999f}, color32_from_f32_color(colors[color_index]));
+		++color_index;
+		write_vertex(&vertex_index, pos + size, v2{0.999f, 0.999f}, color32_from_f32_color(colors[color_index]));
+		++color_index;
+
+		v2 outline = {outline_size, outline_size};
+		size -= outline * 2.f;
+		pos += outline;
+	}
+
+	color_index = 0;
+	write_vertex(&vertex_index, pos, v2{0.999f, 0.999f}, color32_from_f32_color(colors[color_index]));
+	++color_index;
+	write_vertex(&vertex_index, pos + v2{size.x, 0.f}, v2{0.999f, 0.999f}, color32_from_f32_color(colors[color_index]));
+	++color_index;
+	write_vertex(&vertex_index, pos + v2{0.f, size.y}, v2{0.999f, 0.999f}, color32_from_f32_color(colors[color_index]));
+	++color_index;
+	write_vertex(&vertex_index, pos + size, v2{0.999f, 0.999f}, color32_from_f32_color(colors[color_index]));
+	++color_index;
+}
 
 // TODO: remove raylib
 void rl_render()

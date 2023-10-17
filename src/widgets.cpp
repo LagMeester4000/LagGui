@@ -22,7 +22,6 @@ static Color lerp_color(Color c1, Color c2, f32 t)
 
 InputResult button(const char* name)
 {
-	v2 pos = layout_next();
 	ID id = get_id(name);
 	RetainedData* retained = get_retained_data(id);
 	const Style& style = get_style();
@@ -47,7 +46,6 @@ InputResult button(const char* name)
 
 InputResult checkbox(const char* name, bool* value)
 {
-	v2 pos = layout_next();
 	ID id = get_id(name);
 	RetainedData* retained = get_retained_data(id);
 	const Style& style = get_style();
@@ -78,7 +76,6 @@ InputResult checkbox(const char* name, bool* value)
 
 InputResult radio_button(const char* name, int option, int* selected)
 {
-	v2 pos = layout_next();
 	ID id = get_id(name);
 	RetainedData* retained = get_retained_data(id);
 	const Style& style = get_style();
@@ -109,7 +106,6 @@ InputResult radio_button(const char* name, int option, int* selected)
 
 InputResult drag_value(const char* name, f32* value)
 {
-	v2 pos = layout_next();
 	ID id = get_id(name);
 	RetainedData* retained = get_retained_data(id);
 	const Style& style = get_style();
@@ -177,20 +173,19 @@ f32 text_in_rect(Painter* painter, Font* font, v2 pos, f32 width, const char* te
 void text(const char* text, bool wrap)
 {
 	const Style& style = get_style();
-	v2 pos = layout_next();
 
 	if (wrap)
 	{
+		// TODO: Change to work with new layout system
 		Panel* panel = get_current_panel();
-		f32 height = text_in_rect(&panel->get_painter(), style.default_font, pos, panel->content.width(), text, strlen(text), 0, style.window_title_color);
-
-		// TODO: Remove after layout changes
-		panel->draw_pos.y = pos.y + height + style.line_padding;
+		f32 height = text_in_rect(&panel->get_painter(), style.default_font, {}, panel->content.width(), text, strlen(text), 0, style.window_title_color);
 	}
 	else
 	{
-		Painter& painter = get_current_panel()->get_painter();
-		painter.draw_text(style.default_font, text, pos, 0, style.window_title_color);
+		Font* font = style.default_font;
+		Rect rect = layout_next({font->text_width(text, 0.f), font->height});
+		Painter& painter = get_painter();
+		painter.draw_text(font, text, rect.top_left, 0, style.window_title_color);
 	}
 }
 
@@ -625,7 +620,6 @@ bool input_text(char* buffer, usize buffer_size, bool wrap)
 
 bool collapse_header(const char* name)
 {
-	v2 pos = layout_next();
 	ID id = get_id(name);
 	Panel* panel = get_current_panel();
 	RetainedData* retained = get_retained_data(id);
@@ -659,7 +653,6 @@ bool collapse_header(const char* name)
 
 void separator()
 {
-	v2 pos = layout_next();
 	Panel* panel = get_current_panel();
 	const Style& style = get_style();
 

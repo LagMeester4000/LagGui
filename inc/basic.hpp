@@ -24,6 +24,7 @@ inline void __lgui_assert()
 #define LGUI_KB(v) ((v) * 1024)
 #define LGUI_MB(v) (LGUI_KB(v) * 1024)
 #define LGUI_GB(v) (LGUI_GB(v) * 1024)
+#define LGUI_DEFER_LOOP(begin, end) for(int _i_ = ((begin), 0); !_i_; _i_ += 1, (end))
 
 // Linked list macros
 #define LGUI_LL_APPEND_END(obj, prev_name, next_name, first, last) \
