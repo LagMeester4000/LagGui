@@ -301,6 +301,19 @@ void Painter::draw_rectangle_gradient(Rect rect, Color c1, Color c2, Color c3, C
 	draw_rectangle_gradient(rect.top_left, rect.size(), c1, c2, c3, c4);
 }
 
+void Painter::draw_rectangle_outline(v2 pos, v2 size, f32 thickness, Color color)
+{
+	draw_rectangle(pos, {size.x, thickness}, color);
+	draw_rectangle({pos.x, pos.y + size.y - thickness}, {size.x, thickness}, color);
+	draw_rectangle({pos.x, pos.y + thickness}, {thickness, size.y - thickness * 2.f}, color);
+	draw_rectangle({pos.x + size.x - thickness, pos.y + thickness}, {thickness, size.y - thickness * 2.f}, color);
+}
+
+void Painter::draw_rectangle_outline(Rect rect, f32 thickness, Color color)
+{
+	draw_rectangle_outline(rect.top_left, rect.size(), thickness, color);
+}
+
 void Painter::draw_rectangle(Rect rect, Color color)
 {
 	// 1.0 UV doesn't work
@@ -605,7 +618,8 @@ void rl_render()
 		{
 			v2 clip_pos = command->clip_rect.top_left;
 			v2 clip_size = command->clip_rect.size();
-			BeginScissorMode((int)clip_pos.x, (int)clip_pos.y, (int)clip_size.x, (int)clip_size.y);
+			// TEMP disable scissors
+			//BeginScissorMode((int)clip_pos.x, (int)clip_pos.y, (int)clip_size.x, (int)clip_size.y);
 
 			// Has to be done after the scisor mode
 			rlBegin(RL_TRIANGLES);
@@ -642,7 +656,7 @@ void rl_render()
 
 			rlEnd();
 
-			EndScissorMode();
+			//EndScissorMode();
 		}
 	}
 }

@@ -161,6 +161,7 @@ struct RetainedData {
 
 	// State
 	bool open;
+	v2 pos;
 	v2 value_v2;
 	i32 value_int;
 	i32 value_int2;
@@ -292,9 +293,16 @@ struct Style {
 };
 
 enum LayoutFlags {
-	LayoutFlag_ScrollX,
-	LayoutFlag_ScrollY,
-	LayoutFlag_Clip,
+	LayoutFlag_IsHorizontal = 1 << 0,
+	LayoutFlag_Reverse = 1 << 1,
+	LayoutFlag_FixedH = 1 << 3,
+	LayoutFlag_FixedV = 1 << 4,
+	LayoutFlag_Static = 1 << 5,
+
+	LayoutFlag_ScrollX = 1 << 6,
+	LayoutFlag_ScrollY = 1 << 7,
+	LayoutFlag_Clip = 1 << 8,
+	//LayoutFlag_DrawBackground = 1 << 9,
 };
 
 struct Layout {
@@ -303,9 +311,7 @@ struct Layout {
 	ID id;
 	RetainedData* retained_data;
 
-	bool is_horizontal;
-	bool reverse;
-	bool is_static;
+	u32 flags;
 
 	// Minimum size on the axis (horizontal or vertical) in pixels
 	f32 min_line_size;
@@ -317,7 +323,7 @@ struct Layout {
 	// TODO: Implement
 	v2 padding;
 
-	// Alignment within the line
+	// Alignment of child elements within the layout
 	// -1 = min, 0 = center, 1 = max
 	i8 h_align;
 	i8 v_align;
@@ -325,10 +331,10 @@ struct Layout {
 	// The position that the layout starts at
 	// If the layout is reverse, this value will be at the opposite side of the rect
 	v2 start;
-	// Size of the layout on the cross axis (horizontal axis if vertical)
-	f32 cross_axis_size;
 	// Cursor position on the axis (horizontal or vertical)
 	f32 cursor;
+	// Growing value to calculate the size on the cross axis
+	f32 cross_axis_max;
 
 	v2 max_size;
 
@@ -340,15 +346,19 @@ struct Layout {
 	// The drawcommand state when this layout started
 	// Used to iterate over draw command and move elements
 	DrawCommandPoint draw_command_point;
-	
+
 	Rect allocate(v2 size);
 
 	Rect get_cursor_rect();
-	// Pushes the cursor of this layout to match the 
+	// Pushes the cursor of this layout to match the
 	void end_child_layout(Layout* child);
 
 	// Get the full-size rectangle of the layout, including the cursor
 	Rect get_stretched_rect();
+	v2 get_stretched_size();
+
+	// Get a rect that includes all the allocated element rects
+	Rect get_used_rect();
 };
 
 struct Panel;
@@ -390,6 +400,8 @@ struct Painter {
 	void draw_rectangle(Rect rect, Color color);
 	void draw_rectangle_gradient(v2 pos, v2 size, Color c1, Color c2, Color c3, Color c4);
 	void draw_rectangle_gradient(Rect rect, Color c1, Color c2, Color c3, Color c4);
+	void draw_rectangle_outline(v2 pos, v2 size, f32 thickness, Color color);
+	void draw_rectangle_outline(Rect rect, f32 thickness, Color color);
 
 	TriangleStripMode triangle_strip_mode;
 	// Count of vertices
@@ -692,6 +704,7 @@ Panel* get_current_panel();
 bool begin_panel(const char* name, Rect rect, PanelFlag flags);
 void end_panel();
 void move_panel_to_front(Panel* panel);
+Painter& get_painter();
 
 
 // Gets the retained data, or create it if it doesn't exist
@@ -722,11 +735,15 @@ void separator();
 // Only works in vertical layout
 void separator_text(const char* text);
 
+void draw_open_triangle(Painter* painter, v2 pos, f32 size, f32 rotation, Color color);
+
 
 
 // Debug
 
 void debug_menu();
+// Draw rectangle and shows text when hovered
+void debug_rect(Rect rect, const char* text, Color color);
 
 
 }
