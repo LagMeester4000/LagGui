@@ -715,8 +715,8 @@ void end_layout();
 Rect layout_next(v2 size);
 Layout& get_layout();
 
-bool layout_static(ID id, Rect rect, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing);
-bool layout_unknown(ID id, v2 size, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing);
+bool layout_static(ID id, Rect rect, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing, v2 padding = {});
+bool layout_unknown(ID id, v2 size, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing, v2 padding = {});
 bool layout_horizontal(i8 h_align = -1, i8 v_align = -1, bool reverse = false, f32 spacing = -1.f, v2 size = {0.f, 0.f});
 bool layout_vertical(i8 h_align = -1, i8 v_align = -1, bool reverse = false, f32 spacing = -1.f, v2 size = {0.f, 0.f});
 // Horizontal layout with the height of a line and the width of the layout

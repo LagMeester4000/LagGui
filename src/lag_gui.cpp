@@ -1560,6 +1560,11 @@ void DrawBuffer::allocate()
 
 Rect Layout::allocate(v2 size)
 {
+	if (cursor != 0.f)
+	{
+		cursor += (spacing) * ((flags & LayoutFlag_Reverse) ? -1.f : 1.f);
+	}
+
 	// New algorithm
 	if (flags & LayoutFlag_IsHorizontal)
 	{
@@ -1585,7 +1590,7 @@ Rect Layout::allocate(v2 size)
 			ret = Rect::from_pos_size(pos, size);
 		}
 
-		cursor += (size.x + spacing) * ((flags & LayoutFlag_Reverse) ? -1.f : 1.f);
+		cursor += (size.x) * ((flags & LayoutFlag_Reverse) ? -1.f : 1.f);
 		cursor = floorf(cursor);
 
 		if (size.y > cross_axis_max)
@@ -1626,7 +1631,7 @@ Rect Layout::allocate(v2 size)
 			ret = Rect::from_pos_size(pos, size);
 		}
 
-		cursor += (size.y + spacing) * ((flags & LayoutFlag_Reverse) ? -1.f : 1.f);
+		cursor += (size.y) * ((flags & LayoutFlag_Reverse) ? -1.f : 1.f);
 		cursor = floorf(cursor);
 
 		if (size.x > cross_axis_max)
@@ -1669,7 +1674,7 @@ void Layout::end_child_layout(Layout* child)
 		const float min = 0.001f;
 
 		Rect full_new_pos = allocate(child_size);
-		Rect new_pos = full_new_pos.align_size(used_rect.size(), child->h_align, child->v_align);
+		Rect new_pos = full_new_pos.pad(child->padding).align_size(used_rect.size(), child->h_align, child->v_align);
 		v2 movement = new_pos.top_left - used_rect.top_left;
 		movement = v2{
 			LGUI_ABS(movement.x) < min ? 0.f : movement.x,
@@ -1728,13 +1733,13 @@ v2 Layout::get_stretched_size()
 	{
 		f32 size = LGUI_MAX(original_size.x, LGUI_ABS(cursor));
 		f32 cross_size = LGUI_MAX(original_size.y, LGUI_ABS(cross_axis_max));
-		return {size, cross_size};
+		return v2{size, cross_size} + padding * 2.f;
 	}
 	else
 	{
 		f32 size = LGUI_MAX(original_size.y, LGUI_ABS(cursor));
 		f32 cross_size = LGUI_MAX(original_size.x, LGUI_ABS(cross_axis_max));
-		return {cross_size, size};
+		return v2{cross_size, size} + padding * 2.f;
 	}
 }
 
@@ -1784,7 +1789,7 @@ static void layout_take_background(Layout& layout)
 		layout.flags |= LayoutFlag_DrawBackground;
 		memcpy(layout.background_colors, context->layout_background_colors, sizeof(Color) * 8);
 		layout.background_has_outline = context->layout_background_has_outline;
-		layout.background_outline_size = layout.background_outline_size;
+		layout.background_outline_size = context->layout_background_outline_size;
 		layout.background_draw_point = get_painter().retroactive_allocate_rectangle(layout.background_has_outline);
 	}
 }
@@ -1854,20 +1859,23 @@ v2 layout_cursor_pos(const Layout& layout)
 	}
 }
 
-bool layout_unknown(ID id, v2 size, bool horizontal, bool reverse, i8 h_align, i8 v_align, f32 spacing)
+bool layout_unknown(ID id, v2 size, bool horizontal, bool reverse, i8 h_align, i8 v_align, f32 spacing, v2 padding)
 {
 	push_id_raw(id);
 	Layout push{};
 	push.id = id;
 	push.retained_data = get_retained_data(id);
-	push.original_size = size;
-	push.max_size.x = LGUI_MAX(size.x, push.retained_data->value_v2.x);
-	push.max_size.y = LGUI_MAX(size.y, push.retained_data->value_v2.y);
+	push.original_size = size - padding * 2.f;
+	push.original_size.x = LGUI_MAX(push.original_size.x, 0.f);
+	push.original_size.y = LGUI_MAX(push.original_size.y, 0.f);
+	push.max_size.x = LGUI_MAX(push.original_size.x, push.retained_data->value_v2.x);
+	push.max_size.y = LGUI_MAX(push.original_size.y, push.retained_data->value_v2.y);
 	push.flags |= horizontal ? LayoutFlag_IsHorizontal : 0;
 	push.flags |= reverse ? LayoutFlag_Reverse : 0;
 	push.h_align = h_align;
 	push.v_align = v_align;
 	push.spacing = spacing;
+	push.padding = padding;
 
 	// Set (predict) start position
 	Rect cursor_rect = get_layout().get_cursor_rect();
@@ -1876,13 +1884,14 @@ bool layout_unknown(ID id, v2 size, bool horizontal, bool reverse, i8 h_align, i
 	return begin_layout(push);
 }
 
-bool layout_static(ID id, Rect rect, bool horizontal, bool reverse, i8 h_align, i8 v_align, f32 spacing)
+bool layout_static(ID id, Rect rect, bool horizontal, bool reverse, i8 h_align, i8 v_align, f32 spacing, v2 padding)
 {
 	push_id_raw(id);
 	Layout push{};
 	push.id = id;
 	push.retained_data = get_retained_data(id);
 	push.retained_data->rect = rect;
+	rect = rect.pad(padding);
 	push.original_size = rect.size();
 	push.max_size.x = LGUI_MAX(rect.width(), push.retained_data->value_v2.x);
 	push.max_size.y = LGUI_MAX(rect.height(), push.retained_data->value_v2.y);
@@ -1892,6 +1901,7 @@ bool layout_static(ID id, Rect rect, bool horizontal, bool reverse, i8 h_align, 
 	push.h_align = h_align;
 	push.v_align = v_align;
 	push.spacing = spacing;
+	push.padding = padding;
 
 	if (horizontal)
 	{

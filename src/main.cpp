@@ -363,40 +363,46 @@ int main()
 
 				lgui::separator();
 
-				lgui::set_next_layout_background({0.f, 0.f, 0.f, 1.f});
-				if (test_layout_enable && lgui::layout_unknown(10, { lgui::layout_width(), 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f))
-				//if (test_layout_enable && lgui::layout_unknown(10, { 0.f, 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f))
+				if (test_layout_enable)
 				{
-					// TODO: In horizontal mode, this button can jitter at some screen positions, not sure why
-					if (lgui::button("Button1").clicked)
+					lgui::set_next_layout_background(GREY(0.4f), GREY(0.6f), 2.f);
+					if (lgui::layout_unknown(10, { lgui::layout_width(), 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f, {4.f, 4.f}))
 					{
-						printf("Button 1 pressed!\n");
-					}
-					/*if (lgui::button("Button2").clicked)
-					{
-						printf("Button 2 pressed!\n");
-					}
-					if (lgui::button("Button3").clicked)
-					{
-						printf("Button 3 pressed!\n");
-					}*/
-					lgui::checkbox("Button2", &test_value);
-					lgui::radio_button("Button3", 1, &test_radio_value);
-					
-					for (int i = 0; i < test_layout_count; ++i)
-					{
-						lgui::push_id(i);
-
+						// TODO: In horizontal mode, this button can jitter at some screen positions, not sure why
 						if (lgui::button("Button1").clicked)
 						{
 							printf("Button 1 pressed!\n");
 						}
-						lgui::radio_button("Button3", 1, &test_radio_value);
+						/*if (lgui::button("Button2").clicked)
+						{
+							printf("Button 2 pressed!\n");
+						}
+						if (lgui::button("Button3").clicked)
+						{
+							printf("Button 3 pressed!\n");
+						}*/
+						LGUI_V_LAYOUT(-1)
+						{
+							lgui::checkbox("Button2", &test_value);
+							lgui::radio_button("Button3", 1, &test_radio_value);
 
-						lgui::pop_id();
+							for (int i = 0; i < test_layout_count; ++i)
+							{
+								lgui::push_id(i);
+
+								if (lgui::button("Button1").clicked)
+								{
+									printf("Button 1 pressed!\n");
+								}
+								lgui::radio_button("Button3", 1, &test_radio_value);
+
+								lgui::pop_id();
+							}
+						}
+
+
+						lgui::end_layout();
 					}
-
-					lgui::end_layout();
 				}
 
 				lgui::end_panel();
@@ -475,6 +481,7 @@ int main()
 			lgui::end_frame();
 
 
+#if 0
 			// Draw font atlas
 			rlBegin(RL_TRIANGLES);
 			rlColor4ub(255, 255, 255, 255);
@@ -495,6 +502,7 @@ int main()
 			rlTexCoord2f(1, 1);
 			rlVertex2f(w, w);
 			rlEnd();
+#endif
 
 			//rlEnableTexture(context->atlas.texture_id);
 			//DrawRectangle(10, 10, 100, 100, { 255, 200, 255, 255 });
