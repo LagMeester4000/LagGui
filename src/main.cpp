@@ -453,7 +453,7 @@ int main()
 			*/
 
 
-			if (lgui::begin_panel("Other Window", lgui::Rect::from_pos_size(lgui::v2{300, 100}, lgui::v2{300, 500}), 0))
+			if (false && lgui::begin_panel("Other Window", lgui::Rect::from_pos_size(lgui::v2{300, 100}, lgui::v2{300, 500}), 0))
 			{
 				if (lgui::button("Button3").clicked)
 				{
@@ -497,7 +497,7 @@ int main()
 				lgui::end_panel();
 			}
 
-			lgui::debug_menu();
+			//lgui::debug_menu();
 
 			//area_test(area);
 

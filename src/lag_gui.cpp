@@ -1257,7 +1257,6 @@ bool begin_panel(const char* name, Rect rect, PanelFlag flags)
 	panel->content = window_pad.pad(2);
 	panel->start_draw_pos = panel->content.top_left - panel->scroll_pos;
 	panel->draw_pos = panel->start_draw_pos;
-	painter.push_clip_rect(panel->content);
 
 
 	bool open = panel->open || panel->open_anim >= 0.001f;
@@ -1268,7 +1267,7 @@ bool begin_panel(const char* name, Rect rect, PanelFlag flags)
 		open = false;
 	}
 
-	layout_static(4, panel->content, false, false, -1, 0, 2.f);
+	layout_static(panel->id + 1, panel->content, false, false, -1, 0, 2.f, {}, LayoutFlag_Clip);
 
 	if (!open)
 	{
@@ -1315,8 +1314,6 @@ void end_panel()
 
 		painter.draw_rectangle(scroll, {0.4f, 0.4f, 0.4f, 0.7f});
 	}
-
-	painter.pop_clip_rect();
 
 	// Restart painter of previous window if it exists
 	Panel* prev_top_panel = try_get_prev_top_panel();
@@ -1715,7 +1712,7 @@ void Layout::end_child_layout(Layout* child)
 			if (!(child->flags & LayoutFlag_Clip))
 			{
 				painter._adjust_clip_rect_in_range(child->draw_command_point, point, movement, false, 
-					get_context()->layout_stack_top, {});
+					get_context()->layout_stack_top + 1, {});
 			}
 
 			//printf("Updated Layout Vertices\n");
@@ -1726,8 +1723,8 @@ void Layout::end_child_layout(Layout* child)
 		{
 			Painter& painter = get_current_panel()->get_painter();
 			DrawCommandPoint point = painter._get_draw_command_point();
-			painter._adjust_clip_rect_in_range(child->draw_command_point, point, movement, 
-				true, get_context()->layout_stack_top, full_new_pos.pad(child->padding));
+			painter._adjust_clip_rect_in_range(child->draw_command_point, point, {},
+				true, get_context()->layout_stack_top + 1, full_new_pos.pad(child->padding));
 		}
 
 		// Set offset for next time the layout is used
@@ -1871,7 +1868,7 @@ bool begin_layout(const Layout& layout)
 
 	if (layout.flags & LayoutFlag_Clip)
 	{
-		get_painter()._push_layout_clip_rect(layout.retained_data->rect, context->layout_stack_top - 1);
+		get_painter()._push_layout_clip_rect(layout.retained_data->rect, context->layout_stack_top);
 	}
 
 	return true;
@@ -1889,6 +1886,16 @@ void end_layout()
 {
 	Context* context = get_context();
 
+	// End clip rect
+	{
+		//Layout& layout = context->layout_stack[context->layout_stack_top]; // This is allowed
+		Layout& layout = get_layout();
+		if (layout.flags & LayoutFlag_Clip)
+		{
+			get_painter().pop_clip_rect();
+		}
+	}
+
 	LGUI_ASSERT(context->layout_stack_top > 0, "No layout on layout stack");
 	--context->layout_stack_top;
 
@@ -1898,13 +1905,16 @@ void end_layout()
 		Layout& layout = get_layout();
 		layout.end_child_layout(&pop_layout);
 	}
-
-	// End clip rect
+	else
 	{
-		Layout& layout = context->layout_stack[context->layout_stack_top]; // This is allowed
-		if (layout.flags & LayoutFlag_Clip)
+		// Move and adjust clip rectangles
+		Layout& pop_layout = context->layout_stack[context->layout_stack_top]; // This is allowed
+		if (pop_layout.flags & LayoutFlag_Clip)
 		{
-			get_painter().pop_clip_rect();
+			Painter& painter = get_current_panel()->get_painter();
+			DrawCommandPoint point = painter._get_draw_command_point();
+			painter._adjust_clip_rect_in_range(pop_layout.draw_command_point, point, {},
+				true, get_context()->layout_stack_top + 1, pop_layout.retained_data->rect.pad(pop_layout.padding));
 		}
 	}
 

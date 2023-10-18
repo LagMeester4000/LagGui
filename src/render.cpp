@@ -251,7 +251,7 @@ void Painter::pop_clip_rect()
 ClipRect& Painter::_get_internal_clip_rect()
 {
 	LGUI_ASSERT(clip_rect_stack_top > 0, "Out of bounds");
-	return clip_rect_stack[clip_rect_stack_top];
+	return clip_rect_stack[clip_rect_stack_top - 1];
 }
 
 struct ColorU32 {

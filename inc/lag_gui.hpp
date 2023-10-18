@@ -371,7 +371,6 @@ struct Layout {
 	Rect get_stretched_rect();
 	v2 get_stretched_size();
 
-
 	// Get a rect that includes all the allocated element rects
 	Rect get_used_rect();
 
