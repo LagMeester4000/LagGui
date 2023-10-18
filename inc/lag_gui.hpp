@@ -162,6 +162,7 @@ struct RetainedData {
 	// State
 	bool open;
 	v2 pos;
+	v2 scroll;
 	Rect rect;
 	v2 value_v2;
 	i32 value_int;
@@ -187,6 +188,10 @@ struct DrawCommand {
 	usize index_start;
 	usize index_end;
 	TextureID texture_id;
+
+	// Needed to adjust clip rect retroactively
+	u32 layout_depth;
+	bool is_layout;
 };
 
 // A point in the painters drawing sequence
@@ -297,8 +302,8 @@ struct Style {
 enum LayoutFlags {
 	LayoutFlag_IsHorizontal = 1 << 0,
 	LayoutFlag_Reverse = 1 << 1,
-	LayoutFlag_FixedH = 1 << 3,
-	LayoutFlag_FixedV = 1 << 4,
+	LayoutFlag_FixedH = 1 << 3, // Fixed horizontal size
+	LayoutFlag_FixedV = 1 << 4, // Fixed vertical size
 	LayoutFlag_Static = 1 << 5,
 
 	LayoutFlag_ScrollX = 1 << 6,
@@ -331,6 +336,8 @@ struct Layout {
 	// The position that the layout starts at
 	// If the layout is reverse, this value will be at the opposite side of the rect
 	v2 start;
+	// The offset added to every allocated widget position (used for scrolling)
+	v2 offset;
 	// Cursor position on the axis (horizontal or vertical)
 	f32 cursor;
 	// Growing value to calculate the size on the cross axis
@@ -362,11 +369,19 @@ struct Layout {
 	void end_child_layout(Layout* child);
 
 	// Get the full-size rectangle of the layout, including the cursor
+	// If the layout is fixed on an axis then it will have the provided size
+	v2 get_full_size();
+
+	// Get the full-size rectangle of the layout, including the cursor
 	Rect get_stretched_rect();
 	v2 get_stretched_size();
 
+
 	// Get a rect that includes all the allocated element rects
 	Rect get_used_rect();
+
+	v2 get_scroll_pos();
+	void set_scroll_pos(v2 scroll_pos);
 };
 
 struct Panel;
@@ -379,6 +394,14 @@ enum TriangleStripMode {
 	TriangleStripMode_Convex,
 };
 
+struct ClipRect {
+	Rect original_rect;
+	// Clip rect that immediately gets clipped by the previous clip rect
+	Rect input_clip_rect;
+	bool is_layout; // Otherwise, the layout_id refers to the parent
+	u32 layout_depth;
+};
+
 struct Painter {
 	DrawCommand* first_command;
 	DrawCommand* last_command;
@@ -386,7 +409,7 @@ struct Painter {
 
 	u32 frame_last_updated;
 
-	Rect clip_rect_stack[MAX_CLIP_RECT];
+	ClipRect clip_rect_stack[MAX_CLIP_RECT];
 	u32 clip_rect_stack_top;
 
 	// Call on begin_panel
@@ -396,11 +419,14 @@ struct Painter {
 	void _push_command();
 
 	void push_clip_rect(Rect rect);
+	void _push_layout_clip_rect(Rect rect);
 	void pop_clip_rect();
 	Rect get_clip_rect();
+	ClipRect& _get_internal_clip_rect();
 
 	DrawCommandPoint _get_draw_command_point();
 	void _move_vertices_in_range(DrawCommandPoint p1, DrawCommandPoint p2, v2 movement);
+	void _adjust_clip_rect_in_range(DrawCommandPoint p1, DrawCommandPoint p2, v2 movement, bool replace, u32 layout_depth, Rect new_clip);
 
 	//void draw_triangle();
 	void draw_rectangle(v2 pos, v2 size, Color color, v2 uv1, v2 uv2);
@@ -437,7 +463,7 @@ struct Painter {
 
 	void draw_circle(v2 pos, f32 size, f32 t, Color color);
 
-	void draw_round_corner(v2 pos, v2 size, bool is_right, bool is_bottom, Color color);
+	void draw_round_corner(v2 pos, v2 size, bool is_right, bool is_bottom, Color color, bool start_end_strip = true, bool reverse = false);
 	// corner_size = [top_left, top_right, bottom_left, bottom_right]
 	void draw_rounded_rectangle(v2 pos, v2 size, f32 corner_size[4], Color color);
 	void draw_rounded_rectangle(Rect rect, f32 corner_size[4], Color color);
@@ -642,6 +668,8 @@ struct Context {
 	u32 current_frame;
 	f32 delta_time;
 
+	v2 app_window_size;
+
 	// Cleared on shutdown
 	Arena arena;
 	// Cleared every frame
@@ -654,10 +682,6 @@ struct Context {
 
 	DrawBuffer draw_buffer;
 	DrawBuffer merge_draw_buffer;
-
-	// Temp clip rectangle
-	Rect clip_rect_stack[MAX_CLIP_RECT];
-	u32 clip_rect_stack_top;
 
 	// Style
 	Style style_stack[STYLE_STACK_SIZE];
@@ -697,6 +721,7 @@ bool is_anything_hovered();
 ID get_id(const char* string);
 ID get_id(i32 i);
 ID get_id(void* ptr);
+ID peek_id();
 void push_id(const char* string);
 void push_id(i32 i);
 void push_id(void* ptr);
@@ -715,10 +740,10 @@ void end_layout();
 Rect layout_next(v2 size);
 Layout& get_layout();
 
-bool layout_static(ID id, Rect rect, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing, v2 padding = {});
-bool layout_unknown(ID id, v2 size, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing, v2 padding = {});
-bool layout_horizontal(i8 h_align = -1, i8 v_align = -1, bool reverse = false, f32 spacing = -1.f, v2 size = {0.f, 0.f});
-bool layout_vertical(i8 h_align = -1, i8 v_align = -1, bool reverse = false, f32 spacing = -1.f, v2 size = {0.f, 0.f});
+bool layout_static(ID id, Rect rect, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing, v2 padding = {}, u32 flags = 0);
+bool layout_unknown(ID id, v2 size, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing, v2 padding = {}, u32 flags = 0);
+bool layout_horizontal(i8 h_align = -1, i8 v_align = -1, v2 size = {0.f, 0.f}, bool reverse = false, f32 spacing = -1.f, v2 padding = {}, u32 flags = 0);
+bool layout_vertical(i8 h_align = -1, i8 v_align = -1, v2 size = {0.f, 0.f}, bool reverse = false, f32 spacing = -1.f, v2 padding = {}, u32 flags = 0);
 // Horizontal layout with the height of a line and the width of the layout
 bool layout_line(i8 h_align, i8 v_align = 0, bool reverse = false, f32 spacing = -1.f);
 
@@ -772,6 +797,10 @@ bool input_text(char* buffer, usize buffer_size, bool wrap = false);
 void separator();
 // Only works in vertical layout
 void separator_text(const char* text);
+// Emtpy space on the axis of the layout
+void spacer(f32 size);
+bool begin_fancy_collapse_header(const char* name);
+void end_fancy_collapse_header();
 
 void draw_open_triangle(Painter* painter, v2 pos, f32 size, f32 rotation, Color color);
 

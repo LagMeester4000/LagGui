@@ -667,4 +667,64 @@ void separator()
 	painter.draw_rectangle(rect.center_size({rect.width() - take, take}), color);
 }
 
+void spacer(f32 size)
+{
+	Layout& layout = get_layout();
+	if (layout.flags & LayoutFlag_IsHorizontal)
+	{
+		layout.allocate({size, 1.f});
+	}
+	else
+	{
+		layout.allocate({1.f, size});
+	}
+}
+
+bool begin_fancy_collapse_header(const char* name)
+{
+	ID id = get_id(name);
+	push_id_raw(id);
+	RetainedData* retained = get_retained_data(id);
+	const Style& style = get_style();
+
+	lgui::layout_vertical(-1, -1, {layout_width(), 0.f}, false, 0.f);
+	bool open = collapse_header(name);
+	retained->open = open;
+	retained->update_t_towards(false, open, 20.f);
+
+	v2 pad = {10.f, 10.f};
+
+	bool ret = true;
+	if (open && retained->active_t >= 0.98f)
+	{
+		lgui::set_next_layout_background(style.window_title_background, {0, 0, 0, 0.2f}, 20);
+		lgui::layout_vertical(-1, 1, {layout_width(), 0.f}, false, -1, pad, LayoutFlag_FixedH);
+	}
+	else if (retained->active_t > 0.001f)
+	{
+		lgui::set_next_layout_background(style.window_title_background, {0, 0, 0, 0.2f}, 20);
+		lgui::layout_vertical(-1, 1, {layout_width(), retained->value_v2.y * retained->active_t}, false, -1.f, pad, LayoutFlag_Clip | LayoutFlag_FixedH | LayoutFlag_FixedV);
+	}
+	else
+	{
+		ret = false;
+		end_layout();
+		pop_id();
+	}
+
+	return ret;
+}
+
+void end_fancy_collapse_header()
+{
+	v2 size = lgui::get_layout().get_stretched_size();
+	end_layout();
+	end_layout();
+	ID id = peek_id();
+	pop_id();
+
+	RetainedData* retained = get_retained_data(id);
+	retained->value_v2 = size;
+}
+
 }

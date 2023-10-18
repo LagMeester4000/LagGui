@@ -37,6 +37,8 @@ void Painter::_push_command()
 	command->next = current_command;
 	current_command->prev = command;
 	current_command->clip_rect = command->clip_rect;
+	current_command->is_layout = command->is_layout;
+	current_command->layout_depth = command->layout_depth;
 	current_command->vertex_start = context->draw_buffer.vertex_buffer_top;
 	current_command->vertex_end = current_command->vertex_start;
 	current_command->index_start = context->draw_buffer.index_buffer_top;
@@ -83,12 +85,10 @@ void Painter::_start_painter()
 
 void Painter::_restart_painter()
 {
-	// Let's try this out
-	//_start_painter();
-
 	Context* context = get_context();
 
 	DrawCommand* new_command = context->temp_arena.allocate_one<DrawCommand>();
+	new_command->clip_rect = get_clip_rect();
 	new_command->vertex_start = context->draw_buffer.vertex_buffer_top;
 	new_command->vertex_end = current_command->vertex_start;
 	new_command->index_start = context->draw_buffer.index_buffer_top;
@@ -133,9 +133,36 @@ void Painter::_move_vertices_in_range(DrawCommandPoint p1, DrawCommandPoint p2, 
 		for (DrawCommand* it = p1.command->next; it != p2.command; it = it->next)
 		{
 			LGUI_ASSERT(it, "Invalid DrawCommandPoint range, p2 might not be in the same painter as p1, or behind p1");
+			_move_draw_command_vertices(it, it->vertex_start, it->vertex_end, movement);
 		}
 		_move_draw_command_vertices(p2.command, p2.command->vertex_start, p2.vertex_pos, movement);
 	}
+}
+
+static void _internal_adjust_clip_rect_in_range(DrawCommand* command, v2 movement, bool replace, u32 layout_depth, Rect new_clip)
+{
+	if (replace && command->is_layout && command->layout_depth == layout_depth)
+	{
+		command->clip_rect = new_clip;
+	}
+	else if (command->layout_depth >= layout_depth)
+	{
+		command->clip_rect.move(movement);
+		if (replace)
+		{
+			command->clip_rect = command->clip_rect.clip(new_clip);
+		}
+	}
+}
+
+void Painter::_adjust_clip_rect_in_range(DrawCommandPoint p1, DrawCommandPoint p2, v2 movement, bool replace, u32 layout_depth, Rect new_clip)
+{
+	for (DrawCommand* it = p1.command; it != p2.command; it = it->next)
+	{
+		LGUI_ASSERT(it, "Invalid DrawCommandPoint range, p2 might not be in the same painter as p1, or behind p1");
+		_internal_adjust_clip_rect_in_range(it, movement, replace, layout_depth, new_clip);
+	}
+	_internal_adjust_clip_rect_in_range(p2.command, movement, replace, layout_depth, new_clip);
 }
 
 void Painter::push_clip_rect(Rect rect)
@@ -144,12 +171,58 @@ void Painter::push_clip_rect(Rect rect)
 
 	_push_command();
 
+	ClipRect push{};
+	push.is_layout = false;
+	push.layout_depth = get_context()->layout_stack_top;
+	push.original_rect = rect;
+
 	Rect clip = get_clip_rect();
 	Rect new_rect = clip.clip(rect);
-	clip_rect_stack[clip_rect_stack_top] = new_rect;
+	push.input_clip_rect = new_rect;
+
+	clip_rect_stack[clip_rect_stack_top] = push;
 	++clip_rect_stack_top;
 
-	current_command->clip_rect = new_rect;
+	current_command->clip_rect = rect;
+	current_command->layout_depth = push.layout_depth;
+	current_command->is_layout = false;
+}
+
+void Painter::_push_layout_clip_rect(Rect rect)
+{
+	LGUI_ASSERT(clip_rect_stack_top < MAX_CLIP_RECT, "Out of bounds");
+
+	_push_command();
+
+	ClipRect push{};
+	push.is_layout = true;
+	push.layout_depth = get_context()->layout_stack_top;
+	push.original_rect = rect;
+
+	Rect clip = get_clip_rect();
+	Rect new_rect = clip.clip(rect);
+	push.input_clip_rect = new_rect;
+
+	clip_rect_stack[clip_rect_stack_top] = push;
+	++clip_rect_stack_top;
+
+	current_command->clip_rect = rect;
+	current_command->layout_depth = push.layout_depth;
+	current_command->is_layout = true;
+}
+
+Rect get_draw_clip_rect(Painter* painter)
+{
+	return painter->clip_rect_stack_top > 0 ? 
+		painter->clip_rect_stack[painter->clip_rect_stack_top - 1].original_rect : 
+		Rect{{0, 0}, get_context()->app_window_size};
+}
+
+Rect Painter::get_clip_rect()
+{
+	return clip_rect_stack_top > 0 ? 
+		clip_rect_stack[clip_rect_stack_top - 1].input_clip_rect : 
+		Rect{{0, 0}, get_context()->app_window_size};
 }
 
 void Painter::pop_clip_rect()
@@ -159,14 +232,26 @@ void Painter::pop_clip_rect()
 	_push_command();
 
 	--clip_rect_stack_top;
-	Rect clip = get_clip_rect();
-	current_command->clip_rect = clip;
+
+	if (clip_rect_stack_top > 0)
+	{
+		ClipRect& clip = _get_internal_clip_rect();
+		current_command->clip_rect = get_draw_clip_rect(this);
+		current_command->layout_depth = clip.layout_depth;
+		current_command->is_layout = clip.is_layout;
+	}
+	else
+	{
+		current_command->clip_rect = get_draw_clip_rect(this);
+		current_command->layout_depth = 0;
+		current_command->is_layout = false;
+	}
 }
 
-Rect Painter::get_clip_rect()
+ClipRect& Painter::_get_internal_clip_rect()
 {
-	// TODO: Map this to screen size
-	return clip_rect_stack_top > 0 ? clip_rect_stack[clip_rect_stack_top - 1] : Rect{{0, 0}, {1920, 1080}};
+	LGUI_ASSERT(clip_rect_stack_top > 0, "Out of bounds");
+	return clip_rect_stack[clip_rect_stack_top];
 }
 
 struct ColorU32 {
@@ -536,11 +621,14 @@ void Painter::draw_circle(v2 pos, f32 size, f32 t, Color color)
 	end_convex_strip();
 }
 
-void Painter::draw_round_corner(v2 pos, v2 size, bool is_right, bool is_bottom, Color color)
+void Painter::draw_round_corner(v2 pos, v2 size, bool is_right, bool is_bottom, Color color, bool start_end_strip, bool reverse)
 {
-	begin_convex_strip();
-
-	add_strip_triangle(pos, color);
+	if (start_end_strip)
+	{
+		begin_convex_strip();
+		// Don't add the center point if it doesn't own the strip
+		add_strip_triangle(pos, color);
+	}
 
 	f32 detail = LGUI_MAX(size.x, size.y) / 3.f;
 	detail = LGUI_CLAMP(3.f, 15.f, detail);
@@ -551,72 +639,66 @@ void Painter::draw_round_corner(v2 pos, v2 size, bool is_right, bool is_bottom, 
 		is_bottom ? 1.f : -1.f
 	};
 	v2 move = {
-		is_right ? 0.f : -1.f,
-		is_bottom ? 0.f : -1.f
+		is_right ? -1.f : 1.f,
+		is_bottom ? -1.f : 1.f
 	};
 
-	for (f32 f = 0.f; f < 1.f; f += detail)
+	if (reverse)
 	{
-		v2 rot = (v2{sinf(f * 0.5f * PI), cosf(f * 0.5f * PI)} * mul + move);
+		for (f32 f = 1.f; f > 0.f; f -= detail)
+		{
+			v2 rot = (v2{sinf(f * 0.5f * PI), cosf(f * 0.5f * PI)} * mul + move);
+			add_strip_triangle(pos + rot * size, color);
+		}
+
+		v2 rot = (v2{sinf(0.f), cosf(0.f)} * mul + move);
+		add_strip_triangle(pos + rot * size, color);
+	}
+	else
+	{
+		for (f32 f = 0.f; f < 1.f; f += detail)
+		{
+			v2 rot = (v2{sinf(f * 0.5f * PI), cosf(f * 0.5f * PI)} * mul + move);
+			add_strip_triangle(pos + rot * size, color);
+		}
+
+		v2 rot = (v2{sinf(0.5f * PI), cosf(0.5f * PI)} * mul + move);
 		add_strip_triangle(pos + rot * size, color);
 	}
 
-	v2 rot = (v2{sinf(0.5f * PI), cosf(0.5f * PI)} * mul + move);
-	add_strip_triangle(pos + rot * size, color);
-
-	end_convex_strip();
+	if (start_end_strip) end_convex_strip();
 }
 
 void Painter::draw_rounded_rectangle(v2 pos, v2 size, f32 corner_size[4], Color color)
 {
-	f32 top_side_scale = (corner_size[0] + corner_size[1]) > 0.f ? LGUI_MIN(size.x / (corner_size[0] + corner_size[1]), 1.f) : 0.f;
-	f32 bottom_side_scale = (corner_size[2] + corner_size[3]) > 0.f ? LGUI_MIN(size.x / (corner_size[2] + corner_size[3]), 1.f) : 0.f;
-	f32 left_side_scale = (corner_size[0] + corner_size[2]) > 0.f ? LGUI_MIN(size.x / (corner_size[0] + corner_size[2]), 1.f) : 0.f;
-	f32 right_side_scale = (corner_size[1] + corner_size[3]) > 0.f ? LGUI_MIN(size.x / (corner_size[1] + corner_size[3]), 1.f) : 0.f;
+	begin_convex_strip();
 
-	f32 top_left = corner_size[0] * LGUI_MIN(top_side_scale, left_side_scale);
-	f32 top_right = corner_size[1] * LGUI_MIN(top_side_scale, right_side_scale);
-	f32 bottom_left = corner_size[2] * LGUI_MIN(bottom_side_scale, left_side_scale);
-	f32 bottom_right = corner_size[3] * LGUI_MIN(bottom_side_scale, right_side_scale);
+	//v2 center = pos + size / 2.f;
+	//add_strip_triangle(center, color);
 
-	bool top_side_flat = corner_size[0] == 0.f && corner_size[1] == 0.f;
-	bool bottom_side_flat = corner_size[2] == 0.f && corner_size[3] == 0.f;
-	bool left_side_flat = corner_size[0] == 0.f && corner_size[2] == 0.f;
-	bool right_side_flat = corner_size[1] == 0.f && corner_size[3] == 0.f;
+	v2 corner0 = {corner_size[0], corner_size[0]};
+	//draw_round_corner(pos + corner0, corner0, false, false, color, false, true);
+	draw_round_corner(pos, corner0, false, false, color, false, true);
 
+	v2 corner1 = {corner_size[1], corner_size[1]};
+	//draw_round_corner(pos + v2{size.x - corner1.x, corner1.x}, corner1, true, false, color, false);
+	draw_round_corner(pos + v2{size.x, 0.f}, corner1, true, false, color, false);
 
-	if (top_side_flat && bottom_side_flat)
-	{
-		draw_rectangle(pos, size, color);
-	}
+	v2 corner3 = {corner_size[3], corner_size[3]};
+	//draw_round_corner(pos + size - corner3, corner3, true, true, color, false, true);
+	draw_round_corner(pos + size, corner3, true, true, color, false, true);
 
-	v2 top_left_v = pos;
-	v2 top_right_v = pos + v2{size.x - top_right, 0.f};
-	v2 bottom_left_v = pos + v2{0.f, size.y - bottom_left};
-	v2 bottom_right_v = pos + size - v2{bottom_left, bottom_left};
+	v2 corner2 = {corner_size[2], corner_size[2]};
+	//draw_round_corner(pos + v2{corner2.x, size.y - corner2.x}, corner2, false, true, color, false);
+	draw_round_corner(pos + v2{0.f, size.y}, corner2, false, true, color, false);
 
-	if (top_left)
-	{
-		draw_round_corner(top_left_v, {top_left, top_left}, false, false, color);
-	}
-	if (top_right)
-	{
-		draw_round_corner(top_right_v, {top_right, top_right}, true, false, color);
-	}
-	if (bottom_left)
-	{
-		draw_round_corner(bottom_left_v, {bottom_left, bottom_left}, false, true, color);
-	}
-	if (bottom_right)
-	{
-		draw_round_corner(bottom_right_v, { bottom_left, bottom_left }, true, true, color);
-	}
+	end_convex_strip();
 }
 
-/*void Painter::draw_rounded_rectangle(Context* context, Rect rect, Color color)
+void Painter::draw_rounded_rectangle(Rect rect, f32 corner_size[4], Color color)
 {
-
-}*/
+	draw_rounded_rectangle(rect.top_left, rect.size(), corner_size, color);
+}
 
 DrawCommandPoint Painter::retroactive_allocate_rectangle(bool has_outline)
 {
@@ -695,7 +777,7 @@ void rl_render()
 			v2 clip_pos = command->clip_rect.top_left;
 			v2 clip_size = command->clip_rect.size();
 			// TEMP disable scissors
-			//BeginScissorMode((int)clip_pos.x, (int)clip_pos.y, (int)clip_size.x, (int)clip_size.y);
+			BeginScissorMode((int)clip_pos.x, (int)clip_pos.y, (int)clip_size.x, (int)clip_size.y);
 
 			// Has to be done after the scisor mode
 			rlBegin(RL_TRIANGLES);
@@ -732,7 +814,7 @@ void rl_render()
 
 			rlEnd();
 
-			//EndScissorMode();
+			EndScissorMode();
 		}
 	}
 }

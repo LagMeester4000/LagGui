@@ -217,7 +217,6 @@ void area_test(lgui::Context* context, NoteArea& area)
 			area.notes.push_back(note);
 		}
 
-
 		lgui::end_panel();
 	}
 }
@@ -235,6 +234,7 @@ int main()
 	SetTargetFPS(60);
 
 	lgui::Context* context = lgui::init();
+	context->app_window_size = {(f32)screenWidth, (f32)screenHeight};
 
 	lgui::Font* font = context->atlas.add_font("resources/fonts/montserrat/Montserrat-Regular.ttf", 18);
 	lgui::Font* mono_font = context->atlas.add_font("resources/fonts/ubuntu/UbuntuMono-R.ttf", 18);
@@ -305,13 +305,22 @@ int main()
 			}
 			*/
 
-			if (lgui::begin_panel("Layout test", lgui::Rect::from_pos_size(lgui::v2{100, 100}, lgui::v2{350, 350}), 0))
+			if (lgui::begin_panel("Layout test", lgui::Rect::from_pos_size(lgui::v2{250, 250}, lgui::v2{450, 450}), 0))
 			{
 				if (lgui::layout_line(-1))
 				{
 					lgui::checkbox("Layout reverse", &test_layout_reverse);
 					lgui::text("Layout reverse");
 					lgui::end_layout();
+				}
+				if (lgui::begin_fancy_collapse_header("hello sir"))
+				{
+					lgui::text("hello there");
+					lgui::text("hello there");
+					lgui::text("hello there");
+					lgui::text("hello there");
+					lgui::text("hello there");
+					lgui::end_fancy_collapse_header();
 				}
 				if (lgui::layout_line(-1))
 				{
@@ -350,6 +359,16 @@ int main()
 					lgui::radio_button("Layout h_align -1", -1, &test_layout_h_align);
 					lgui::radio_button("Layout h_align 0", 0, &test_layout_h_align);
 					lgui::radio_button("Layout h_align 1", 1, &test_layout_h_align);
+				
+					/*
+					{
+						Rect rect = lgui::layout_next({100, 100});
+						lgui::Painter& painter = lgui::get_painter();
+						f32 c[4] = {10.f, 10.f, 10.f, 10.f};
+						painter.draw_rounded_rectangle(rect, c, {0, 1, 0, 0.5f});
+					}
+					*/
+
 					lgui::end_layout();
 				}
 				if (lgui::layout_line(-1))
@@ -366,21 +385,23 @@ int main()
 				if (test_layout_enable)
 				{
 					lgui::set_next_layout_background(GREY(0.4f), GREY(0.6f), 2.f);
-					if (lgui::layout_unknown(10, { lgui::layout_width(), 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f, {4.f, 4.f}))
+					//if (lgui::layout_unknown(10, { lgui::layout_width(), 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f, {8.f, 8.f}))
+					//if (lgui::layout_unknown(10, { 0.f, 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f, {8.f, 8.f}))
+					if (lgui::layout_unknown(10, { lgui::layout_width(), 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f, {8.f, 8.f}, lgui::LayoutFlag_FixedH))
 					{
-						// TODO: In horizontal mode, this button can jitter at some screen positions, not sure why
 						if (lgui::button("Button1").clicked)
 						{
 							printf("Button 1 pressed!\n");
 						}
-						/*if (lgui::button("Button2").clicked)
+						if (lgui::button("Button2").clicked)
 						{
 							printf("Button 2 pressed!\n");
 						}
 						if (lgui::button("Button3").clicked)
 						{
 							printf("Button 3 pressed!\n");
-						}*/
+						}
+						/*
 						LGUI_V_LAYOUT(-1)
 						{
 							lgui::checkbox("Button2", &test_value);
@@ -399,6 +420,7 @@ int main()
 								lgui::pop_id();
 							}
 						}
+						*/
 
 
 						lgui::end_layout();
