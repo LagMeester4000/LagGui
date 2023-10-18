@@ -70,6 +70,11 @@ void begin_frame(f32 delta_time)
 {
 	Context* context = get_context();
 
+	context->draw_buffer.vertex_buffer_top = 0;
+	context->draw_buffer.index_buffer_top = 0;
+
+	_delete_old_panels();
+
 	context->delta_time = delta_time;
 
 	context->temp_arena.reset();
@@ -162,13 +167,11 @@ void end_frame()
 	}
 	context->first_root_dock = nullptr;
 	context->last_root_dock = nullptr;
+}
 
+void draw_frame()
+{
 	rl_render();
-
-	context->draw_buffer.vertex_buffer_top = 0;
-	context->draw_buffer.index_buffer_top = 0;
-
-	_delete_old_panels();
 }
 
 bool is_anything_hovered()
@@ -1715,7 +1718,7 @@ void Layout::end_child_layout(Layout* child)
 					get_context()->layout_stack_top, {});
 			}
 
-			printf("Updated Layout Vertices\n");
+			//printf("Updated Layout Vertices\n");
 		}
 
 		// Move and adjust clip rectangles
@@ -1743,18 +1746,18 @@ v2 Layout::get_full_size()
 {
 	if (flags & LayoutFlag_IsHorizontal)
 	{
-		f32 size = LGUI_MAX(original_size.x, LGUI_ABS(cursor));
-		f32 cross_size = LGUI_MAX(original_size.y, LGUI_ABS(cross_axis_max));
-		v2 ret = v2{size, cross_size} + padding * 2.f;
+		f32 size = LGUI_MAX(original_size.x, LGUI_ABS(cursor + padding.x * 2.f));
+		f32 cross_size = LGUI_MAX(original_size.y, LGUI_ABS(cross_axis_max + padding.y * 2.f));
+		v2 ret = v2{size, cross_size};
 		if (flags & LayoutFlag_FixedH) ret.x = original_size.x;
 		if (flags & LayoutFlag_FixedV) ret.y = original_size.y;
 		return ret;
 	}
 	else
 	{
-		f32 size = LGUI_MAX(original_size.y, LGUI_ABS(cursor));
-		f32 cross_size = LGUI_MAX(original_size.x, LGUI_ABS(cross_axis_max));
-		v2 ret = v2{cross_size, size} + padding * 2.f;
+		f32 size = LGUI_MAX(original_size.y, LGUI_ABS(cursor) + padding.y * 2.f);
+		f32 cross_size = LGUI_MAX(original_size.x, LGUI_ABS(cross_axis_max) + padding.x * 2.f);
+		v2 ret = v2{cross_size, size};
 		if (flags & LayoutFlag_FixedH) ret.x = original_size.x;
 		if (flags & LayoutFlag_FixedV) ret.y = original_size.y;
 		return ret;
@@ -1781,15 +1784,15 @@ v2 Layout::get_stretched_size()
 {
 	if (flags & LayoutFlag_IsHorizontal)
 	{
-		f32 size = LGUI_MAX(original_size.x, LGUI_ABS(cursor));
-		f32 cross_size = LGUI_MAX(original_size.y, LGUI_ABS(cross_axis_max));
-		return v2{size, cross_size} + padding * 2.f;
+		f32 size = LGUI_MAX(original_size.x, LGUI_ABS(cursor + padding.x * 2.f));
+		f32 cross_size = LGUI_MAX(original_size.y, LGUI_ABS(cross_axis_max + padding.y * 2.f));
+		return v2{size, cross_size};
 	}
 	else
 	{
-		f32 size = LGUI_MAX(original_size.y, LGUI_ABS(cursor));
-		f32 cross_size = LGUI_MAX(original_size.x, LGUI_ABS(cross_axis_max));
-		return v2{cross_size, size} + padding * 2.f;
+		f32 size = LGUI_MAX(original_size.y, LGUI_ABS(cursor) + padding.y * 2.f);
+		f32 cross_size = LGUI_MAX(original_size.x, LGUI_ABS(cross_axis_max) + padding.x * 2.f);
+		return v2{cross_size, size};
 	}
 }
 
@@ -1858,11 +1861,6 @@ bool begin_layout(const Layout& layout)
 {
 	Context* context = get_context();
 
-	if (layout.flags & LayoutFlag_Clip)
-	{
-		get_painter()._push_layout_clip_rect(layout.retained_data->rect);
-	}
-
 	LGUI_ASSERT(context->layout_stack_top < LAYOUT_STACK_SIZE, "Layout stack is full");
 	Layout& top = context->layout_stack[context->layout_stack_top];
 	top = layout;
@@ -1870,6 +1868,11 @@ bool begin_layout(const Layout& layout)
 
 	layout_take_background(top);
 	top.draw_command_point = get_current_panel()->get_painter()._get_draw_command_point();
+
+	if (layout.flags & LayoutFlag_Clip)
+	{
+		get_painter()._push_layout_clip_rect(layout.retained_data->rect, context->layout_stack_top - 1);
+	}
 
 	return true;
 }
@@ -1939,9 +1942,7 @@ bool layout_unknown(ID id, v2 size, bool horizontal, bool reverse, i8 h_align, i
 	Layout push{};
 	push.id = id;
 	push.retained_data = get_retained_data(id);
-	push.original_size = size - padding * 2.f;
-	push.original_size.x = LGUI_MAX(push.original_size.x, 0.f);
-	push.original_size.y = LGUI_MAX(push.original_size.y, 0.f);
+	push.original_size = size;
 	push.max_size.x = LGUI_MAX(push.original_size.x, push.retained_data->value_v2.x);
 	push.max_size.y = LGUI_MAX(push.original_size.y, push.retained_data->value_v2.y);
 	push.flags |= flags;
@@ -1952,6 +1953,8 @@ bool layout_unknown(ID id, v2 size, bool horizontal, bool reverse, i8 h_align, i
 	push.spacing = spacing;
 	push.padding = padding;
 	push.offset = -push.retained_data->scroll;
+	push.offset.x = floorf(push.offset.x);
+	push.offset.y = floorf(push.offset.y);
 
 	// Set (predict) start position
 	Rect cursor_rect = get_layout().get_cursor_rect();
@@ -1967,7 +1970,6 @@ bool layout_static(ID id, Rect rect, bool horizontal, bool reverse, i8 h_align, 
 	push.id = id;
 	push.retained_data = get_retained_data(id);
 	push.retained_data->rect = rect;
-	rect = rect.pad(padding);
 	push.original_size = rect.size();
 	push.max_size.x = LGUI_MAX(rect.width(), push.retained_data->value_v2.x);
 	push.max_size.y = LGUI_MAX(rect.height(), push.retained_data->value_v2.y);

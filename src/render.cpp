@@ -188,7 +188,7 @@ void Painter::push_clip_rect(Rect rect)
 	current_command->is_layout = false;
 }
 
-void Painter::_push_layout_clip_rect(Rect rect)
+void Painter::_push_layout_clip_rect(Rect rect, u32 layout_depth)
 {
 	LGUI_ASSERT(clip_rect_stack_top < MAX_CLIP_RECT, "Out of bounds");
 
@@ -196,7 +196,7 @@ void Painter::_push_layout_clip_rect(Rect rect)
 
 	ClipRect push{};
 	push.is_layout = true;
-	push.layout_depth = get_context()->layout_stack_top;
+	push.layout_depth = layout_depth;
 	push.original_rect = rect;
 
 	Rect clip = get_clip_rect();
@@ -727,22 +727,24 @@ DrawCommandPoint Painter::retroactive_allocate_rectangle(bool has_outline)
 void Painter::retroactive_draw_rectangle(DrawCommandPoint point, bool has_outline, v2 pos, v2 size, 
 	Color* colors, f32 outline_size)
 {
-	if (!point.command)
+	if (!point.command || size.x <= 0.f || size.y <= 0.f)
 	{
 		return;
 	}
+
+	v2 uv = v2{0.999f, 0.999f};
 
 	usize vertex_index = point.vertex_pos;
 	usize color_index = 4;
 	if (has_outline)
 	{
-		write_vertex(&vertex_index, pos, v2{0.999f, 0.999f}, color32_from_f32_color(colors[color_index]));
+		write_vertex(&vertex_index, pos, uv, color32_from_f32_color(colors[color_index]));
 		++color_index;
-		write_vertex(&vertex_index, pos + v2{size.x, 0.f}, v2{0.999f, 0.999f}, color32_from_f32_color(colors[color_index]));
+		write_vertex(&vertex_index, pos + v2{size.x, 0.f}, uv, color32_from_f32_color(colors[color_index]));
 		++color_index;
-		write_vertex(&vertex_index, pos + v2{0.f, size.y}, v2{0.999f, 0.999f}, color32_from_f32_color(colors[color_index]));
+		write_vertex(&vertex_index, pos + v2{0.f, size.y}, uv, color32_from_f32_color(colors[color_index]));
 		++color_index;
-		write_vertex(&vertex_index, pos + size, v2{0.999f, 0.999f}, color32_from_f32_color(colors[color_index]));
+		write_vertex(&vertex_index, pos + size, uv, color32_from_f32_color(colors[color_index]));
 		++color_index;
 
 		v2 outline = {outline_size, outline_size};
@@ -750,14 +752,16 @@ void Painter::retroactive_draw_rectangle(DrawCommandPoint point, bool has_outlin
 		pos += outline;
 	}
 
+	if (size.x <= 0.f || size.y <= 0.f) return;
+
 	color_index = 0;
-	write_vertex(&vertex_index, pos, v2{0.999f, 0.999f}, color32_from_f32_color(colors[color_index]));
+	write_vertex(&vertex_index, pos, uv, color32_from_f32_color(colors[color_index]));
 	++color_index;
-	write_vertex(&vertex_index, pos + v2{size.x, 0.f}, v2{0.999f, 0.999f}, color32_from_f32_color(colors[color_index]));
+	write_vertex(&vertex_index, pos + v2{size.x, 0.f}, uv, color32_from_f32_color(colors[color_index]));
 	++color_index;
-	write_vertex(&vertex_index, pos + v2{0.f, size.y}, v2{0.999f, 0.999f}, color32_from_f32_color(colors[color_index]));
+	write_vertex(&vertex_index, pos + v2{0.f, size.y}, uv, color32_from_f32_color(colors[color_index]));
 	++color_index;
-	write_vertex(&vertex_index, pos + size, v2{0.999f, 0.999f}, color32_from_f32_color(colors[color_index]));
+	write_vertex(&vertex_index, pos + size, uv, color32_from_f32_color(colors[color_index]));
 	++color_index;
 }
 

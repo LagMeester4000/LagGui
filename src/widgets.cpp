@@ -692,17 +692,17 @@ bool begin_fancy_collapse_header(const char* name)
 	retained->open = open;
 	retained->update_t_towards(false, open, 20.f);
 
-	v2 pad = {10.f, 10.f};
+	v2 pad = {3.f, 3.f};
 
 	bool ret = true;
-	if (open && retained->active_t >= 0.98f)
+	if (open && retained->active_t >= 0.99f)
 	{
-		lgui::set_next_layout_background(style.window_title_background, {0, 0, 0, 0.2f}, 20);
-		lgui::layout_vertical(-1, 1, {layout_width(), 0.f}, false, -1, pad, LayoutFlag_FixedH);
+		lgui::set_next_layout_background(style.window_title_background, style.window_outline, 2);
+		lgui::layout_vertical(-1, 1, {layout_width(), 0.f}, false, -1, pad, LayoutFlag_Clip | LayoutFlag_FixedH);
 	}
 	else if (retained->active_t > 0.001f)
 	{
-		lgui::set_next_layout_background(style.window_title_background, {0, 0, 0, 0.2f}, 20);
+		lgui::set_next_layout_background(style.window_title_background, style.window_outline, 2);
 		lgui::layout_vertical(-1, 1, {layout_width(), retained->value_v2.y * retained->active_t}, false, -1.f, pad, LayoutFlag_Clip | LayoutFlag_FixedH | LayoutFlag_FixedV);
 	}
 	else

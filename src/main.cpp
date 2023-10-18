@@ -285,11 +285,14 @@ int main()
 
 		BeginDrawing();
 
-			//ClearBackground(RAYWHITE);
-			ClearBackground(SKYBLUE);
+		//ClearBackground(RAYWHITE);
+		ClearBackground(SKYBLUE);
 
-			rlDisableBackfaceCulling();
+		rlDisableBackfaceCulling();
 
+		// Enable for frame by frame
+		if (IsKeyPressed(KEY_ENTER) || IsKeyDown(KEY_RIGHT_SHIFT))
+		{
 			lgui::begin_frame(GetFrameTime());
 
 			/*
@@ -315,11 +318,11 @@ int main()
 				}
 				if (lgui::begin_fancy_collapse_header("hello sir"))
 				{
-					lgui::text("hello there");
-					lgui::text("hello there");
-					lgui::text("hello there");
-					lgui::text("hello there");
-					lgui::text("hello there");
+					LGUI_H_LAYOUT(-1, 0) { lgui::text("hello 1"); lgui::button("BUTTON"); }
+					LGUI_H_LAYOUT(-1, 0) { lgui::text("hello 2"); lgui::button("BUTTON"); }
+					LGUI_H_LAYOUT(-1, 0) { lgui::text("hello 3"); lgui::checkbox("BUTTON", &test_value); }
+					LGUI_H_LAYOUT(-1, 0) { lgui::text("hello 4"); lgui::button("BUTTON"); }
+					LGUI_H_LAYOUT(-1, 0) { lgui::text("hello 5"); lgui::button("BUTTON"); }
 					lgui::end_fancy_collapse_header();
 				}
 				if (lgui::layout_line(-1))
@@ -359,7 +362,7 @@ int main()
 					lgui::radio_button("Layout h_align -1", -1, &test_layout_h_align);
 					lgui::radio_button("Layout h_align 0", 0, &test_layout_h_align);
 					lgui::radio_button("Layout h_align 1", 1, &test_layout_h_align);
-				
+
 					/*
 					{
 						Rect rect = lgui::layout_next({100, 100});
@@ -387,7 +390,7 @@ int main()
 					lgui::set_next_layout_background(GREY(0.4f), GREY(0.6f), 2.f);
 					//if (lgui::layout_unknown(10, { lgui::layout_width(), 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f, {8.f, 8.f}))
 					//if (lgui::layout_unknown(10, { 0.f, 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f, {8.f, 8.f}))
-					if (lgui::layout_unknown(10, { lgui::layout_width(), 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f, {8.f, 8.f}, lgui::LayoutFlag_FixedH))
+					if (lgui::layout_unknown(10, { lgui::layout_width(), 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f, { 8.f, 8.f }, lgui::LayoutFlag_FixedH))
 					{
 						if (lgui::button("Button1").clicked)
 						{
@@ -482,13 +485,13 @@ int main()
 					const char* text = "This is my text that will be cut off";
 					for (int i = -1; i < 2; ++i)
 					{
-						lgui::Rect rect = lgui::layout_next({5 + test_text_fit_value, 25});
-						painter.draw_rectangle(rect, {0, 0, 0, 1});
-						painter.draw_text_fit(font, text, rect, 0, {1, 1, 1, 1}, i, 0);
+						lgui::Rect rect = lgui::layout_next({ 5 + test_text_fit_value, 25 });
+						painter.draw_rectangle(rect, { 0, 0, 0, 1 });
+						painter.draw_text_fit(font, text, rect, 0, { 1, 1, 1, 1 }, i, 0);
 					}
 
-					Rect pos2 = lgui::layout_next({10, 10});
-					painter.draw_text(font, text, pos2.top_left, 0, {1, 1, 1, 1});
+					Rect pos2 = lgui::layout_next({ 10, 10 });
+					painter.draw_text(font, text, pos2.top_left, 0, { 1, 1, 1, 1 });
 				}
 
 				lgui::end_panel();
@@ -535,7 +538,10 @@ int main()
 
 			//DrawTexture(a)
 
-			DrawFPS(1, 1);
+		}
+
+		lgui::draw_frame();
+		DrawFPS(1, 1);
 		EndDrawing();
 	}
 

@@ -347,11 +347,6 @@ struct Layout {
 	// The size used when creating the layout
 	v2 original_size;
 
-	// Last allocated full width or height line, with a cut in it from the allocation
-	Rect prev_line;
-	// When true, use the previous line for the next element
-	bool same_line;
-
 	// The drawcommand state when this layout started
 	// Used to iterate over draw command and move elements
 	DrawCommandPoint draw_command_point;
@@ -419,7 +414,7 @@ struct Painter {
 	void _push_command();
 
 	void push_clip_rect(Rect rect);
-	void _push_layout_clip_rect(Rect rect);
+	void _push_layout_clip_rect(Rect rect, u32 layout_depth);
 	void pop_clip_rect();
 	Rect get_clip_rect();
 	ClipRect& _get_internal_clip_rect();
@@ -712,6 +707,7 @@ void deinit();
 Context* get_context();
 void begin_frame(f32 delta_time);
 void end_frame();
+void draw_frame();
 
 
 // To check if any ui is hovered over with the mouse
