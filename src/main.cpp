@@ -231,7 +231,7 @@ int main()
 
 	InitWindow(screenWidth, screenHeight, "raylib [core] example - basic window");
 	SetWindowState(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
-	SetTargetFPS(60);
+	//SetTargetFPS(60);
 
 	lgui::Context* context = lgui::init();
 	context->app_window_size = {(f32)screenWidth, (f32)screenHeight};
@@ -291,7 +291,7 @@ int main()
 		rlDisableBackfaceCulling();
 
 		// Enable for frame by frame
-		if (IsKeyPressed(KEY_ENTER) || IsKeyDown(KEY_RIGHT_SHIFT))
+		//if (IsKeyPressed(KEY_ENTER) || IsKeyDown(KEY_RIGHT_SHIFT))
 		{
 			lgui::begin_frame(GetFrameTime());
 
@@ -323,6 +323,13 @@ int main()
 					LGUI_H_LAYOUT(-1, 0) { lgui::text("hello 3"); lgui::checkbox("BUTTON", &test_value); }
 					LGUI_H_LAYOUT(-1, 0) { lgui::text("hello 4"); lgui::button("BUTTON"); }
 					LGUI_H_LAYOUT(-1, 0) { lgui::text("hello 5"); lgui::button("BUTTON"); }
+
+					for (int i = 0; i < 100; ++i)
+					{
+						LGUI_H_LAYOUT(-1, 0) { lgui::text("hello 1"); lgui::button("BUTTON"); }
+						//lgui::text("hello 1"); lgui::button("BUTTON"); 
+					}
+
 					lgui::end_fancy_collapse_header();
 				}
 				if (lgui::layout_line(-1))

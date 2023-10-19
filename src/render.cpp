@@ -346,18 +346,63 @@ inline static void write_vertex(f32** ptr, v2 pos, v2 uv, ColorU32 color)
 	*ptr += 5;
 }
 
+FORCE_INLINE
 ColorU32 color32_from_f32_color(Color c)
 {
 	return rgba((u8)(c.r * 255.f), (u8)(c.g * 255.f), (u8)(c.b * 255.f), (u8)(c.a * 255.f));
 }
 
+FORCE_INLINE
+inline static void draw_rect_fast(f32* vertex_ptr, usize vertex_off, usize first_vertex_index, 
+	DrawIndex* index_ptr, usize index_off, v2 pos, v2 size, ColorU32 color32, v2 uv1, v2 uv2)
+{
+	//ColorU32 color32 = color32_from_f32_color(color);
+
+	//LGUI_ASSERT(vertex_index % VERTEX_SIZE_FLOATS == 0, "vertex buffer has incorrect number of floats");
+
+	vertex_ptr[vertex_off + 0 * VERTEX_SIZE_FLOATS + 0] = pos.x;
+	vertex_ptr[vertex_off + 0 * VERTEX_SIZE_FLOATS + 1] = pos.y;
+	vertex_ptr[vertex_off + 0 * VERTEX_SIZE_FLOATS + 2] = uv1.x;
+	vertex_ptr[vertex_off + 0 * VERTEX_SIZE_FLOATS + 3] = uv1.y;
+	vertex_ptr[vertex_off + 0 * VERTEX_SIZE_FLOATS + 4] = color32.as_float;
+
+	vertex_ptr[vertex_off + 1 * VERTEX_SIZE_FLOATS + 0] = pos.x + size.x;
+	vertex_ptr[vertex_off + 1 * VERTEX_SIZE_FLOATS + 1] = pos.y;
+	vertex_ptr[vertex_off + 1 * VERTEX_SIZE_FLOATS + 2] = uv2.x;
+	vertex_ptr[vertex_off + 1 * VERTEX_SIZE_FLOATS + 3] = uv1.y;
+	vertex_ptr[vertex_off + 1 * VERTEX_SIZE_FLOATS + 4] = color32.as_float;
+
+	vertex_ptr[vertex_off + 2 * VERTEX_SIZE_FLOATS + 0] = pos.x;
+	vertex_ptr[vertex_off + 2 * VERTEX_SIZE_FLOATS + 1] = pos.y + size.y;
+	vertex_ptr[vertex_off + 2 * VERTEX_SIZE_FLOATS + 2] = uv1.x;
+	vertex_ptr[vertex_off + 2 * VERTEX_SIZE_FLOATS + 3] = uv2.y;
+	vertex_ptr[vertex_off + 2 * VERTEX_SIZE_FLOATS + 4] = color32.as_float;
+
+	vertex_ptr[vertex_off + 3 * VERTEX_SIZE_FLOATS + 0] = pos.x + size.x;
+	vertex_ptr[vertex_off + 3 * VERTEX_SIZE_FLOATS + 1] = pos.y + size.y;
+	vertex_ptr[vertex_off + 3 * VERTEX_SIZE_FLOATS + 2] = uv2.x;
+	vertex_ptr[vertex_off + 3 * VERTEX_SIZE_FLOATS + 3] = uv2.y;
+	vertex_ptr[vertex_off + 3 * VERTEX_SIZE_FLOATS + 4] = color32.as_float;
+
+	index_ptr[index_off + 0] = (DrawIndex)first_vertex_index;
+	index_ptr[index_off + 1] = (DrawIndex)first_vertex_index + 1;
+	index_ptr[index_off + 2] = (DrawIndex)first_vertex_index + 2;
+
+	index_ptr[index_off + 3] = (DrawIndex)first_vertex_index + 1;
+	index_ptr[index_off + 4] = (DrawIndex)first_vertex_index + 2;
+	index_ptr[index_off + 5] = (DrawIndex)first_vertex_index + 3;
+}
+
 void Painter::draw_rectangle(v2 pos, v2 size, Color color, v2 uv1, v2 uv2)
 {
+	/* TEMP
 	if (!has_vertex_space(this, 4) || !has_index_space(this, 2))
 	{
 		return;
 	}
+	*/
 
+	/*
 	ColorU32 color32 = color32_from_f32_color(color);
 	DrawIndex vx1 = push_vertex(this, pos, uv1, color32);
 	DrawIndex vx2 = push_vertex(this, pos + v2{size.x, 0.f}, {uv2.x, uv1.y}, color32);
@@ -366,6 +411,65 @@ void Painter::draw_rectangle(v2 pos, v2 size, Color color, v2 uv1, v2 uv2)
 
 	push_index_triangle(this, vx1, vx2, vx3);
 	push_index_triangle(this, vx2, vx3, vx4);
+	*/
+
+	// Optimised path (manual inlining)
+
+	Context* context = get_context();
+
+	//ColorU32 color32 = color32_from_f32_color(color);
+	ColorU32 color32;// = rgba((u8)(c.r * 255.f), (u8)(c.g * 255.f), (u8)(c.b * 255.f), (u8)(c.a * 255.f));
+	color32.as_arr[0] = (u8)(color.r * 255.f);
+	color32.as_arr[1] = (u8)(color.g * 255.f);
+	color32.as_arr[2] = (u8)(color.b * 255.f);
+	color32.as_arr[3] = (u8)(color.a * 255.f);
+
+	usize vertex_index = current_command->vertex_end;
+	//LGUI_ASSERT(vertex_index % VERTEX_SIZE_FLOATS == 0, "vertex buffer has incorrect number of floats");
+
+	f32* vertex_ptr = context->draw_buffer.vertex_buffer + vertex_index;
+
+	vertex_ptr[0 * VERTEX_SIZE_FLOATS + 0] = pos.x;
+	vertex_ptr[0 * VERTEX_SIZE_FLOATS + 1] = pos.y;
+	vertex_ptr[0 * VERTEX_SIZE_FLOATS + 2] = uv1.x;
+	vertex_ptr[0 * VERTEX_SIZE_FLOATS + 3] = uv1.y;
+	vertex_ptr[0 * VERTEX_SIZE_FLOATS + 4] = color32.as_float;
+
+	vertex_ptr[1 * VERTEX_SIZE_FLOATS + 0] = pos.x + size.x;
+	vertex_ptr[1 * VERTEX_SIZE_FLOATS + 1] = pos.y;
+	vertex_ptr[1 * VERTEX_SIZE_FLOATS + 2] = uv2.x;
+	vertex_ptr[1 * VERTEX_SIZE_FLOATS + 3] = uv1.y;
+	vertex_ptr[1 * VERTEX_SIZE_FLOATS + 4] = color32.as_float;
+
+	vertex_ptr[2 * VERTEX_SIZE_FLOATS + 0] = pos.x;
+	vertex_ptr[2 * VERTEX_SIZE_FLOATS + 1] = pos.y + size.y;
+	vertex_ptr[2 * VERTEX_SIZE_FLOATS + 2] = uv1.x;
+	vertex_ptr[2 * VERTEX_SIZE_FLOATS + 3] = uv2.y;
+	vertex_ptr[2 * VERTEX_SIZE_FLOATS + 4] = color32.as_float;
+
+	vertex_ptr[3 * VERTEX_SIZE_FLOATS + 0] = pos.x + size.x;
+	vertex_ptr[3 * VERTEX_SIZE_FLOATS + 1] = pos.y + size.y;
+	vertex_ptr[3 * VERTEX_SIZE_FLOATS + 2] = uv2.x;
+	vertex_ptr[3 * VERTEX_SIZE_FLOATS + 3] = uv2.y;
+	vertex_ptr[3 * VERTEX_SIZE_FLOATS + 4] = color32.as_float;
+
+	current_command->vertex_end += VERTEX_SIZE_FLOATS * 4;
+	auto first_vertex_index = vertex_index / VERTEX_SIZE_FLOATS;
+
+	// This shouldn't actually happen if the API is used properly, because we check for space before adding vertices
+	LGUI_ASSERT(first_vertex_index + 3 < DRAW_INDEX_MAX, "The returned index is higher than the possible amount of vertices, change the draw index type");
+
+	DrawIndex* index_ptr = context->draw_buffer.index_buffer + current_command->index_end;
+
+	index_ptr[0] = (DrawIndex)first_vertex_index;
+	index_ptr[1] = (DrawIndex)first_vertex_index + 1;
+	index_ptr[2] = (DrawIndex)first_vertex_index + 2;
+
+	index_ptr[3] = (DrawIndex)first_vertex_index + 1;
+	index_ptr[4] = (DrawIndex)first_vertex_index + 2;
+	index_ptr[5] = (DrawIndex)first_vertex_index + 3;
+
+	current_command->index_end += 6;
 }
 
 void Painter::draw_rectangle(v2 pos, v2 size, Color color)
@@ -423,6 +527,7 @@ void Painter::draw_rectangle(Rect rect, Color color)
 
 f32 Painter::draw_text(Font* font, const char* text, v2 pos, f32 spacing, Color color)
 {
+	/*
 	// Flooring the position to prevent weird rendering issues
 	pos = v2{floorf(pos.x), floorf(pos.y)};
 	f32 x_off = 0.f;
@@ -438,6 +543,60 @@ f32 Painter::draw_text(Font* font, const char* text, v2 pos, f32 spacing, Color 
 		//draw_rectangle(context, pos + v2{x_off, 0} + glyph.pos, glyph.size, color, test_uv, test_uv);
 
 		//x_off += glyph.size.x + spacing;
+		x_off += glyph.advance_x + spacing;
+	}
+
+	return x_off;
+	*/
+
+
+
+	// Flooring the position to prevent weird rendering issues
+	pos = v2{floorf(pos.x), floorf(pos.y)};
+	f32 x_off = 0.f;
+	usize len = strlen(text);
+
+
+
+	Context* context = get_context();
+
+	ColorU32 color32;// = rgba((u8)(c.r * 255.f), (u8)(c.g * 255.f), (u8)(c.b * 255.f), (u8)(c.a * 255.f));
+	color32.as_arr[0] = (u8)(color.r * 255.f);
+	color32.as_arr[1] = (u8)(color.g * 255.f);
+	color32.as_arr[2] = (u8)(color.b * 255.f);
+	color32.as_arr[3] = (u8)(color.a * 255.f);
+
+	usize vertex_index = current_command->vertex_end;
+	//LGUI_ASSERT(vertex_index % VERTEX_SIZE_FLOATS == 0, "vertex buffer has incorrect number of floats");
+
+	f32* vertex_ptr = context->draw_buffer.vertex_buffer + vertex_index;
+
+	current_command->vertex_end += VERTEX_SIZE_FLOATS * 4 * len;
+	usize first_vertex_index = vertex_index / VERTEX_SIZE_FLOATS;
+
+	// This shouldn't actually happen if the API is used properly, because we check for space before adding vertices
+	LGUI_ASSERT(first_vertex_index + 3 < DRAW_INDEX_MAX, "The returned index is higher than the possible amount of vertices, change the draw index type");
+
+	DrawIndex* index_ptr = context->draw_buffer.index_buffer + current_command->index_end;
+
+	current_command->index_end += 6 * len;
+
+
+
+	for (usize i = 0; i < len; ++i)
+	{
+		Codepoint codepoint = text[i];
+		const Glyph& glyph = font->get_glyph(codepoint);
+
+		//draw_rectangle(pos + v2{x_off, 0} + glyph.pos, glyph.size, color, glyph.uv1, glyph.uv2);
+		draw_rect_fast(
+			vertex_ptr, i * VERTEX_SIZE_FLOATS * 4, first_vertex_index + i * 4, 
+			index_ptr, i * 6, 
+			pos + v2{x_off, 0} + glyph.pos, glyph.size, color32, glyph.uv1, glyph.uv2
+		);
+
+		
+
 		x_off += glyph.advance_x + spacing;
 	}
 
