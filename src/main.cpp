@@ -229,9 +229,9 @@ int main()
 	const int screenWidth = 800;
 	const int screenHeight = 800;
 
-	InitWindow(screenWidth, screenHeight, "raylib [core] example - basic window");
+	InitWindow(screenWidth, screenHeight, "LGUI Example");
 	SetWindowState(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
-	//SetTargetFPS(60);
+	SetTargetFPS(60);
 
 	lgui::Context* context = lgui::init();
 	context->app_window_size = {(f32)screenWidth, (f32)screenHeight};
@@ -252,8 +252,17 @@ int main()
 	style.button_background = COLOR_T(0.4f, 0.4f, 0.9f, 1.f);
 	style.button_background_hover = COLOR_T(0.4f, 0.4f, 0.9f, 0.8f);
 	style.button_background_down = COLOR_T(0.4f, 0.4f, 0.9f, 0.5f);
+	style.button_text = {1.f, 1.f, 1.f, 1.f};
+	style.radio_button_background = COLOR_T(0.4f, 0.4f, 0.9f, 1.f);
+	style.radio_button_background_hover = COLOR_T(0.4f, 0.4f, 0.9f, 0.8f);
+	style.radio_button_inside = {0.8f, 0.8f, 0.8f, 1.f};
+	style.radio_button_outline = COLOR_T(0.4f, 0.4f, 0.9f, 0.7f);
+	style.radio_button_outline_size = 1.f;
 	style.button_padding = 2.f;
 	style.checkbox_outline = COLOR_T(0.6f, 0.6f, 1.0f, 1.f);
+	style.separator = GREY(0.5f);
+	style.separator_size = 2.f;
+	style.separator_spacing = 20.f;
 	lgui::push_style(style);
 
 	bool test_value = false;
@@ -291,10 +300,9 @@ int main()
 		rlDisableBackfaceCulling();
 
 		// Enable for frame by frame
-		//if (IsKeyPressed(KEY_ENTER) || IsKeyDown(KEY_RIGHT_SHIFT))
+		if (IsKeyPressed(KEY_ENTER) || IsKeyDown(KEY_RIGHT_SHIFT))
 		{
 			lgui::begin_frame(GetFrameTime());
-
 			
 			if (lgui::begin_panel("Box test", lgui::Rect::from_pos_size(lgui::v2{250, 250}, lgui::v2{450, 450}), 0))
 			{
@@ -307,18 +315,56 @@ int main()
 						if (lgui::button("button 2 23423423").clicked) { printf("Clicky!\n"); }
 						lgui::spacer(10);
 						if (lgui::button("button 3").clicked) { printf("Clicky!\n"); }
+
+						lgui::spacer(10);
+						lgui::radio_button("the option", 1, &test_radio_value);
+
+						lgui::separator();
+
+						if (lgui::begin_fancy_collapse_header("Hello sir"))
+						{
+							LGUI_H_LAYOUT(-1, 0)
+							{
+								lgui::radio_button("the option2", 2, &test_radio_value);
+								lgui::spacer(3.f);
+								lgui::text("Option 2");
+							}
+							lgui::spacer(2);
+
+							for (int i = 0; i < 2; ++i)
+							{
+								LGUI_H_LAYOUT(-1, 0)
+								{
+									lgui::radio_button("the option3", 3, &test_radio_value);
+									lgui::spacer(3.f);
+									lgui::text("Option 3");
+								}
+							}
+
+							lgui::spacer(2);
+							lgui::end_fancy_collapse_header();
+						}
+
+						lgui::spacer(3.f);
+						LGUI_H_LAYOUT(-1, 0)
+						{
+							lgui::checkbox("hello checkbox", &test_value);
+							lgui::spacer(3.f);
+							lgui::text("Check this out");
+						}
 					}
 
-					lgui::spacer(10);
+					//lgui::spacer(10);
 
+					/*
 					LGUI_V_LAYOUT(-1, -1)
 					{
 						if (lgui::button("button 4").clicked) { printf("Clicky!\n"); }
 						lgui::spacer(10);
 						if (lgui::button("button 5").clicked) { printf("Clicky!\n"); }
 
-						for (int i = 0; i < 1000; ++i) // Heavy benchmark
-						//for (int i = 0; i < 100; ++i)
+						//for (int i = 0; i < 1000; ++i) // Heavy benchmark
+						for (int i = 0; i < 100; ++i)
 						{
 							LGUI_H_LAYOUT(-1, -1)
 							{
@@ -327,11 +373,10 @@ int main()
 								if (lgui::button("button 4").clicked) { printf("Clicky!\n"); }
 							}
 						}
-					}
+					}*/
 
 				}
 
-				lgui::spacer(10);
 				lgui::end_panel();
 			}
 

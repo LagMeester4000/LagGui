@@ -23,7 +23,7 @@ static Color lerp_color(Color c1, Color c2, f32 t)
 InputResult button(const char* name)
 {
 	ID id = get_id(name);
-	//RetainedData* retained = get_retained_data(id);
+	RetainedData* retained = get_retained_data(id);
 	const Style& style = get_style();
 
 	// Rect
@@ -37,14 +37,33 @@ InputResult button(const char* name)
 	box->v_align = 0;
 
 	InputResult input = handle_element_input(box->prev_rect(), id);
-	//retained->update_t_towards(input.hover, input.down);
-	//Color color = lerp_color(lerp_color(style.button_background, style.button_background_hover, retained->hover_t), style.button_background_down, retained->active_t);
-	Color color = style.button_background;
+	retained->update_t_towards(input.hover, input.down);
+	Color color = lerp_color(lerp_color(style.button_background, style.button_background_hover, retained->hover_t), style.button_background_down, retained->active_t);
 
 	box->color = color;
-	box->text_color = {1, 1, 1, 1};
+	box->text_color = style.button_text;
 
 	return input;
+}
+
+void separator()
+{
+	const Style& style = get_style();
+	Box* box = get_box();
+	if (box->flags & BoxFlag_IsHorizontal)
+	{
+		layout_horizontal(0, 0, {px(style.separator_spacing), pc(1.f)});
+		Box* box = make_box(box_generate_id(), {px(style.separator_size), pc(0.9f)}, 0);
+		box->set_rectangle(style.separator);
+		layout_end();
+	}
+	else
+	{
+		layout_vertical(0, 0, {pc(1.f), px(style.separator_spacing)});
+		Box* box = make_box(box_generate_id(), {pc(0.9f), px(style.separator_size)}, 0);
+		box->set_rectangle(style.separator);
+		layout_end();
+	}
 }
 
 void spacer(f32 size)
@@ -57,6 +76,19 @@ void spacer(f32 size)
 	else
 	{
 		make_box(box_generate_id(), px(1.f, size), 0);
+	}
+}
+
+void min_size(f32 size)
+{
+	Box* box = get_box();
+	if (box->flags & BoxFlag_IsHorizontal)
+	{
+		make_box(box_generate_id(), px(0.f, size), 0);
+	}
+	else
+	{
+		make_box(box_generate_id(), px(size, 0.f), 0);
 	}
 }
 
@@ -75,6 +107,157 @@ void text(const char* text)
 	box->h_align = 0;
 	box->v_align = 0;
 	box->text_color = {1.f, 1.f, 1.f, 1.f};
+}
+
+InputResult radio_button(const char* name, int option, int* selected)
+{
+	ID id = get_id(name);
+	RetainedData* retained = get_retained_data(id);
+	const Style& style = get_style();
+
+	// Box
+	f32 size = style.line_height();
+	Box* box = push_box(name, px(size, size), 0);
+	box->h_align = 0;
+	box->v_align = 0;
+
+	// Input
+	InputResult input = handle_element_input(box->prev_rect(), id);
+	if (input.clicked)
+	{
+		*selected = option;
+	}
+
+	retained->update_t_towards(input.hover, *selected == option, 30);
+	Color color = lerp_color(style.radio_button_background, style.radio_button_background_hover, retained->hover_t);
+	box->set_circle(color, style.radio_button_outline, style.radio_button_outline_size);
+
+	if (*selected)
+	{
+		// Second circle
+		f32 inside_size = size * lerp(0.2f, 0.6f, retained->active_t);
+		Box* inside = make_box(name, px(inside_size, inside_size), 0);
+		Color c = style.radio_button_inside;
+		c.a = retained->active_t;
+		inside->set_circle(c);
+	}
+
+	pop_box();
+
+	return input;
+}
+
+InputResult checkbox(const char* name, bool* value)
+{
+	ID id = get_id(name);
+	RetainedData* retained = get_retained_data(id);
+	const Style& style = get_style();
+
+	// Box
+	f32 size = style.line_height();
+	Box* box = push_box(name, px(size, size), 0);
+	box->h_align = 0;
+	box->v_align = 0;
+
+	// Input
+	InputResult input = handle_element_input(box->prev_rect(), id);
+	if (input.clicked)
+	{
+		*value = !*value;
+	}
+
+	retained->update_t_towards(input.hover, *value, 30);
+	Color color = lerp_color(style.radio_button_background, style.radio_button_background_hover, retained->hover_t);
+	box->set_rectangle(color, style.radio_button_outline, style.radio_button_outline_size);
+
+	if (*value)
+	{
+		// Second circle
+		f32 inside_size = size * lerp(0.2f, 0.6f, retained->active_t);
+		Box* inside = make_box(name, px(inside_size, inside_size), 0);
+		Color c = style.radio_button_inside;
+		c.a = retained->active_t;
+		inside->set_rectangle(c);
+	}
+
+	pop_box();
+
+	return input;
+}
+
+static void _open_triangle(Size2 size, Color color, f32 t)
+{
+	Box* box = make_box(box_generate_id(), size, 0);
+	box->active_t = t;
+	box->color = color;
+	box->set_draw_hook([](Box* box, Painter& painter, Rect rect) {
+		draw_open_triangle(&painter, rect.top_left, rect.size().x, box->active_t, box->color);
+	});
+}
+
+bool begin_fancy_collapse_header(const char* name)
+{
+	ID id = get_id(name);
+	push_id_raw(id);
+	RetainedData* retained = get_retained_data(id);
+	const Style& style = get_style();
+
+	Font* font = style.default_font;
+
+	Box* vertical = layout_vertical(-1, -1, {pc(1.f), fit()});
+	min_size(100.f);
+
+	// Header
+	{
+		Box* header = layout_horizontal(-1, 0, {pc(1.f), px(style.line_height())});
+		header->padding = {4.f, 4.f};
+		header->set_rectangle(style.button_background);
+
+		if (handle_element_input(header->prev_rect(), header->id).clicked)
+		{
+			retained->open = !retained->open;
+		}
+		retained->update_t_towards(false, retained->open, 20.f);
+
+		_open_triangle({px(font->height, font->height)}, style.button_text, retained->active_t * 90.f);
+		spacer(5.f);
+		text(name);
+
+		layout_end();
+	}
+
+	v2 padding = {3.f, 3.f};
+
+	bool ret = true;
+	if (retained->open && retained->active_t >= 0.99f)
+	{
+		Box* inner = layout_vertical(-1, 1, {pc(1.f), fit()});
+		inner->set_rectangle(style.window_title_background);
+		inner->padding = padding;
+	}
+	else if (retained->active_t > 0.001f)
+	{
+		Box* inner = layout_vertical(-1, 1, {pc(1.f), px(100)});
+		inner->flags |= BoxFlag_Clip;
+		inner->size[1] = px((inner->prev_used_size.y + padding.y * 2.f) * retained->active_t);
+		inner->set_rectangle(style.window_title_background);
+		inner->padding = padding;
+	}
+	else
+	{
+		ret = false;
+		layout_end();
+		pop_id();
+	}
+
+	return ret;
+}
+
+void end_fancy_collapse_header()
+{
+	layout_end();
+	layout_end();
+	pop_id();
 }
 
 /*

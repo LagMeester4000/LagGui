@@ -285,27 +285,25 @@ struct Style {
 	Color button_background;
 	Color button_background_hover;
 	Color button_background_down;
+	Color button_text;
 	f32 button_padding;
 
+	Color radio_button_background;
+	Color radio_button_background_hover;
+	Color radio_button_inside;
+	Color radio_button_outline;
+	f32 radio_button_outline_size;
+
 	Color checkbox_outline;
+	Color checkbox_background;
+	Color checkbox_inside;
+	f32 checkbox_outline_size;
+
+	Color separator;
+	f32 separator_size;
+	f32 separator_spacing;
 
 	f32 line_height() const { return default_font->height + line_padding * 2.f; }
-};
-
-enum BoxFlags {
-	BoxFlag_IsHorizontal = 1 << 0,
-	BoxFlag_Reverse = 1 << 1,
-	BoxFlag_FixedH = 1 << 3, // Fixed horizontal size
-	BoxFlag_FixedV = 1 << 4, // Fixed vertical size
-	BoxFlag_Static = 1 << 5,
-
-	BoxFlag_ScrollX = 1 << 6,
-	BoxFlag_ScrollY = 1 << 7,
-	BoxFlag_Clip = 1 << 8,
-
-	BoxFlag_DrawRectangle = 1 << 9, // Will draw a full-size rectangle in the box
-	BoxFlag_DrawText = 1 << 10, // Will draw text in in the aligned position within the box
-	BoxFlag_DrawHook = 1 << 11,
 };
 
 struct Box;
@@ -335,39 +333,23 @@ inline Size pc(f32 v) { return {SizeType_Percent, v}; }
 inline Size2 pc(f32 x, f32 y) { return {{SizeType_Percent, x}, {SizeType_Percent, y}}; }
 inline Size fit() { return {SizeType_Fit, 1.f}; }
 
-/*
-enum PaintCommandTypes {
-	PaintCommandType_Invalid,
-	PaintCommandType_Rect1col,
-	PaintCommandType_Rect4col,
-	PaintCommandType_Text,
-	PaintCommandType_ConvexShape,
-};
+enum BoxFlags {
+	BoxFlag_IsHorizontal = 1 << 0,
+	BoxFlag_Reverse = 1 << 1,
+	BoxFlag_FixedH = 1 << 3, // Fixed horizontal size
+	BoxFlag_FixedV = 1 << 4, // Fixed vertical size
+	BoxFlag_Static = 1 << 5,
 
-struct PaintCommandRect1Col {
-	v2 pos;
-	v2 size;
-	u32 color;
-};
+	BoxFlag_ScrollX = 1 << 6,
+	BoxFlag_ScrollY = 1 << 7,
+	BoxFlag_Clip = 1 << 8,
 
-struct PaintCommandRect4Col {
-	v2 pos;
-	v2 size;
-	u32 color[4];
+	BoxFlag_DrawRectangle = 1 << 9, // Will draw a full-size rectangle in the box
+	BoxFlag_DrawCircle = 1 << 10,
+	BoxFlag_DrawText = 1 << 11, // Will draw text in in the aligned position within the box
+	BoxFlag_DrawHook = 1 << 12,
+	BoxFlag_AnyDrawFlags = BoxFlag_DrawRectangle | BoxFlag_DrawCircle | BoxFlag_DrawText | BoxFlag_DrawHook,
 };
-
-struct PaintCommandText {
-	const char* text;
-	usize text_len;
-	v2 pos;
-	u32 color;
-};
-
-struct PaintCommandHeader {
-	PaintCommandHeader* next;
-	u32 type;
-};
-*/
 
 struct Box {
 	Box* parent;
@@ -376,7 +358,7 @@ struct Box {
 	Box* first_child;
 	Box* last_child;
 
-	Box* prev_unknown_size;
+	Box* next_unknown_size;
 
 	Box* hash_next;
 
@@ -402,13 +384,11 @@ struct Box {
 	// Added to by child elements
 	// + on axis, max() on cross-axis
 	v2 used_size;
+	v2 prev_used_size;
 	u32 child_count;
 	// For each axis, how many of the children were able to calculate their size
 	u32 known_size_child_count;
 	v2 calculated_position;
-
-	//PaintCommandHeader* first_draw_command;
-	//PaintCommandHeader* last_draw_command;
 
 	DrawHook draw_hook;
 	void* draw_user_data;
@@ -421,6 +401,10 @@ struct Box {
 	const char* text;
 	usize text_length;
 	Font* font;
+
+	// Animation
+	f32 hover_t;
+	f32 active_t;
 
 	// Safety check
 	bool d_ended;
@@ -442,6 +426,13 @@ struct Box {
 	void post_calculate_size();
 
 	Rect prev_rect() { return Rect::from_pos_size(calculated_position, calculated_size); }
+
+	void set_rectangle(Color color);
+	void set_rectangle(Color color, Color outline_color, f32 outline_size);
+	void set_circle(Color color);
+	void set_circle(Color color, Color outline_color, f32 outline_size);
+	void set_draw_hook(DrawHook hook);
+	void set_draw_hook(void* ud, DrawHook hook);
 };
 
 struct Panel;
@@ -674,6 +665,7 @@ struct Panel {
 	// Boxs from previous and current frame
 	// Swap between these two every frame
 	Box** box_lookup[2];
+	Box* first_unknown_size;
 	Box* last_unknown_size;
 
 	Box* root_box;
@@ -811,18 +803,6 @@ void layout_end();
 #define LGUI_H_LAYOUT(...) LGUI_DEFER_LOOP(lgui::layout_horizontal(__VA_ARGS__), lgui::layout_end())
 #define LGUI_V_LAYOUT(...) LGUI_DEFER_LOOP(lgui::layout_vertical(__VA_ARGS__), lgui::layout_end())
 
-//bool layout_static(ID id, Rect rect, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing, v2 padding = {}, u32 flags = 0);
-//bool layout_unknown(ID id, v2 size, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing, v2 padding = {}, u32 flags = 0);
-//bool layout_horizontal(i8 h_align = -1, i8 v_align = -1, v2 size = {0.f, 0.f}, bool reverse = false, f32 spacing = -1.f, v2 padding = {}, u32 flags = 0);
-//bool layout_vertical(i8 h_align = -1, i8 v_align = -1, v2 size = {0.f, 0.f}, bool reverse = false, f32 spacing = -1.f, v2 padding = {}, u32 flags = 0);
-//// Horizontal layout with the height of a line and the width of the layout
-//bool layout_line(i8 h_align, i8 v_align = 0, bool reverse = false, f32 spacing = -1.f);
-
-// Box macro helpers (you don't have to use these if you don't want to)
-//#define LGUI_H_LAYOUT(...) LGUI_DEFER_LOOP(lgui::layout_horizontal(__VA_ARGS__), lgui::end_layout())
-//#define LGUI_V_LAYOUT(...) LGUI_DEFER_LOOP(lgui::layout_vertical(__VA_ARGS__), lgui::end_layout())
-//#define LGUI_LINE_LAYOUT(...) LGUI_DEFER_LOOP(lgui::layout_line(__VA_ARGS__), lgui::end_layout())
-
 // Generate an ID based on position in the layout
 ID box_generate_id();
 //f32 box_width();
@@ -866,6 +846,8 @@ void separator();
 void separator_text(const char* text);
 // Emtpy space on the axis of the layout
 void spacer(f32 size);
+// Inserts a 0 width or height element but with given size
+void min_size(f32 size);
 bool begin_fancy_collapse_header(const char* name);
 void end_fancy_collapse_header();
 

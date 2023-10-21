@@ -63,9 +63,9 @@ Context* init()
 
 void deinit()
 {
-	free(g_context->arena.ptr);
 	free(g_context->temp_arena_arr[0].ptr);
 	free(g_context->temp_arena_arr[1].ptr);
+	free(g_context->arena.ptr);
 
 	g_context = nullptr;
 }
@@ -1152,6 +1152,7 @@ bool begin_panel(const char* name, Rect rect, PanelFlag flags)
 	}
 
 	panel->last_unknown_size = nullptr;
+	panel->first_unknown_size = nullptr;
 	panel->flags = flags;
 
 	if (panel->frame_last_updated == 0)
@@ -1309,7 +1310,7 @@ void end_panel()
 	pop_box();
 
 	// Calculate missing box sizes
-	for (Box* it = panel->last_unknown_size; it; it = it->prev_unknown_size)
+	for (Box* it = panel->first_unknown_size; it; it = it->next_unknown_size)
 	{
 		it->post_calculate_size();
 	}
@@ -1631,8 +1632,17 @@ void Box::end()
 	{
 		// Append to unknown size list
 		Panel* panel = get_current_panel();
-		prev_unknown_size = panel->last_unknown_size;
-		panel->last_unknown_size = this;
+		if (!panel->first_unknown_size)
+		{
+			panel->first_unknown_size = this;
+			panel->last_unknown_size = this;
+		}
+		else
+		{
+			LGUI_ASSERT(panel->last_unknown_size, "If first exists, this must exist");
+			panel->last_unknown_size->next_unknown_size = this;
+			panel->last_unknown_size = this;
+		}
 	}
 }
 
@@ -1770,6 +1780,7 @@ Box* _allocate_box(ID id)
 		new_box->last_child = nullptr;
 		new_box->child_count = 0;
 		new_box->known_size_child_count = 0;
+		new_box->prev_used_size = new_box->used_size;
 		new_box->used_size = {};
 		new_box->counter = 0;
 		// Keep calculated position/size so the user can reuse it
@@ -1833,6 +1844,7 @@ void push_box(Box* box)
 		box->begin();
 
 		// For child widgets that want to calculate their size immediately
+		// TODO: Do we though???
 		box->try_calculate_size(false, false);
 	}
 
@@ -1883,7 +1895,6 @@ Box* layout_horizontal(i8 h_align, i8 v_align, Size2 size)
 	Box* push = push_box(box_generate_id(), size, BoxFlag_IsHorizontal);
 	push->h_align = h_align;
 	push->v_align = v_align;
-	push->padding = {10.f, 10.f};
 
 	// Debug
 	push->color = {1, 0, 0, 0.4f};
@@ -1909,10 +1920,59 @@ void layout_end()
 	pop_box();
 }
 
+void Box::set_rectangle(Color color)
+{
+	flags |= BoxFlag_DrawRectangle;
+	this->color = color;
+	this->outline_color = {};
+	this->outline_size = 0;
+}
+
+void Box::set_rectangle(Color color, Color outline_color, f32 outline_size)
+{
+	flags |= BoxFlag_DrawRectangle;
+	this->color = color;
+	this->outline_color = outline_color;
+	this->outline_size = outline_size;
+}
+
+void Box::set_circle(Color color)
+{
+	flags |= BoxFlag_DrawCircle;
+	this->color = color;
+	this->outline_color = {};
+	this->outline_size = 0;
+}
+
+void Box::set_circle(Color color, Color outline_color, f32 outline_size)
+{
+	flags |= BoxFlag_DrawCircle;
+	this->color = color;
+	this->outline_color = outline_color;
+	this->outline_size = outline_size;
+}
+
+void Box::set_draw_hook(void* ud, DrawHook hook)
+{
+	LGUI_ASSERT(hook, "Hook cannot be null");
+	flags |= BoxFlag_DrawHook;
+	this->draw_hook = hook;
+	this->draw_user_data = ud;
+}
+
+void Box::set_draw_hook(DrawHook hook)
+{
+	LGUI_ASSERT(hook, "Hook cannot be null");
+	flags |= BoxFlag_DrawHook;
+	this->draw_hook = hook;
+	this->draw_user_data = nullptr;
+}
+
 static void _draw_box(Painter& painter, Box* box, const Rect* clip_rect)
 {
 	// Position must already be known here
 
+	// Optimization avoiding get_clip_rect
 	Rect pass_clip_rect;
 	//Rect rect = box->prev_rect().pad(box->padding);
 	// Manual inline
@@ -1920,13 +1980,40 @@ static void _draw_box(Painter& painter, Box* box, const Rect* clip_rect)
 
 	//debug_rect(rect, "lol", {1, 1, 0, 1});
 
-	if (box->flags & BoxFlag_DrawRectangle)
+	if (box->flags & BoxFlag_AnyDrawFlags && clip_rect->overlap(rect))
 	{
-		painter.draw_rectangle(box->calculated_position, box->calculated_size, box->color);
-	}
-	if (box->flags & BoxFlag_DrawText)
-	{
-		if (clip_rect->overlap(rect))
+		if (box->flags & BoxFlag_DrawRectangle)
+		{
+			if (box->outline_size > 0.f)
+			{
+				v2 outline = { box->outline_size, box->outline_size };
+				painter.draw_rectangle(box->calculated_position, box->calculated_size, box->outline_color);
+				painter.draw_rectangle(box->calculated_position + outline, box->calculated_size - outline * 2.f, box->color);
+			}
+			else
+			{
+				painter.draw_rectangle(box->calculated_position, box->calculated_size, box->color);
+			}
+		}
+		if (box->flags & BoxFlag_DrawCircle)
+		{
+			v2 size = { box->calculated_size.x, box->calculated_size.x };
+			if (box->outline_size > 0.f)
+			{
+				painter.draw_circle(box->calculated_position + size / 2.f, box->calculated_size.x / 2.f, 1.f, box->outline_color);
+				painter.draw_circle(box->calculated_position + size / 2.f, box->calculated_size.x / 2.f - box->outline_size, 1.f, box->color);
+			}
+			else
+			{
+				painter.draw_circle(box->calculated_position + size / 2.f, box->calculated_size.x / 2.f, 1.f, box->color);
+			}
+		}
+		if (box->flags & BoxFlag_DrawHook)
+		{
+			LGUI_ASSERT(box->draw_hook, "No draw hook provided");
+			box->draw_hook(box, painter, rect);
+		}
+		if (box->flags & BoxFlag_DrawText)
 		{
 			LGUI_ASSERT(box->font, "Box wants to render text but has not font");
 			v2 text_size = {box->font->text_width(box->text, box->text_length, 0.f), box->font->height};
