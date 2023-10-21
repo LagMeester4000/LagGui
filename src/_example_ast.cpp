@@ -94,23 +94,23 @@ enum AstNodeType {
 	AstNodeType_MAX,
 };
 
-struct AstLayoutElement {
+struct AstBoxElement {
 	bool is_child_node;
 	int index;
 };
 
 const int AST_NODE_LAYOUT_MAX = 8;
-struct AstNodeLayout {
+struct AstNodeBox {
 	bool initialized;
-	AstLayoutElement layout[AST_NODE_LAYOUT_MAX];
+	AstBoxElement layout[AST_NODE_LAYOUT_MAX];
 	int layout_count;
 };
 
-AstNodeLayout create_layout(std::initializer_list<AstLayoutElement> list)
+AstNodeBox create_layout(std::initializer_list<AstBoxElement> list)
 {
 	LGUI_ASSERT(list.size() <= AST_NODE_LAYOUT_MAX, "Too many layout elements, increase array size");
 
-	AstNodeLayout ret{};
+	AstNodeBox ret{};
 	ret.initialized = true;
 	for (auto it : list)
 	{
@@ -217,7 +217,7 @@ struct Editor {
 	Rect window_rect;
 	v2 char_size;
 
-	AstNodeLayout layouts[AstNodeType_MAX];
+	AstNodeBox layouts[AstNodeType_MAX];
 };
 
 AstNode* allocate_node(Editor* editor)
@@ -323,7 +323,7 @@ Editor* make_editor()
 	return ret;
 }
 
-void add_layout(Editor* editor, AstNodeType node, std::initializer_list<AstLayoutElement> list)
+void add_layout(Editor* editor, AstNodeType node, std::initializer_list<AstBoxElement> list)
 {
 	editor->layouts[node] = create_layout(list);
 }
@@ -597,7 +597,7 @@ AstPoint last_point(Editor* editor, AstNode* node)
 	else
 	{
 		// Specific types that have a layout
-		const AstNodeLayout& layout = editor->layouts[node->type];
+		const AstNodeBox& layout = editor->layouts[node->type];
 		LGUI_ASSERT(layout.initialized && layout.layout_count > 0, "Need layout but it is not initialized");
 		const auto& l = layout.layout[layout.layout_count - 1];
 		if (l.is_child_node)
@@ -635,7 +635,7 @@ AstPoint first_point(Editor* editor, AstNode* node)
 	else
 	{
 		// Specific types that have a layout
-		const AstNodeLayout& layout = editor->layouts[node->type];
+		const AstNodeBox& layout = editor->layouts[node->type];
 		LGUI_ASSERT(layout.initialized && layout.layout_count > 0, "Need layout but it is not initialized");
 		const auto& l = layout.layout[0];
 		if (l.is_child_node)
@@ -690,7 +690,7 @@ AstPoint _next_point(Editor* editor, AstPoint point, AstNode* node)
 	else
 	{
 		// Specific types that have a layout
-		const AstNodeLayout& layout = editor->layouts[node->type];
+		const AstNodeBox& layout = editor->layouts[node->type];
 		LGUI_ASSERT(layout.initialized, "Need layout but it is not initialized");
 
 		bool do_check_offset = (node == point.node);
@@ -789,7 +789,7 @@ AstPoint _prev_point(Editor* editor, AstPoint point, AstNode* node)
 	else
 	{
 		// Specific types that have a layout
-		const AstNodeLayout& layout = editor->layouts[node->type];
+		const AstNodeBox& layout = editor->layouts[node->type];
 		LGUI_ASSERT(layout.initialized && layout.layout_count > 0, "Need layout but it is not initialized");
 
 		bool do_check_offset = (node == point.node);

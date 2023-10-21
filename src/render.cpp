@@ -33,7 +33,7 @@ void Painter::_push_command()
 	context->draw_buffer.index_buffer_top = current_command->index_end;
 
 	// Reset current command
-	current_command = context->temp_arena.allocate_one<DrawCommand>();
+	current_command = context->temp_arena->allocate_one<DrawCommand>();
 	command->next = current_command;
 	current_command->prev = command;
 	current_command->clip_rect = command->clip_rect;
@@ -70,7 +70,7 @@ void Painter::_start_painter()
 		first_command = nullptr;
 		last_command = nullptr;
 
-		current_command = context->temp_arena.allocate_one<DrawCommand>();
+		current_command = context->temp_arena->allocate_one<DrawCommand>();
 		current_command->clip_rect = get_clip_rect();
 		current_command->vertex_start = context->draw_buffer.vertex_buffer_top;
 		current_command->vertex_end = current_command->vertex_start;
@@ -87,22 +87,13 @@ void Painter::_restart_painter()
 {
 	Context* context = get_context();
 
-	DrawCommand* new_command = context->temp_arena.allocate_one<DrawCommand>();
+	DrawCommand* new_command = context->temp_arena->allocate_one<DrawCommand>();
 	new_command->clip_rect = get_clip_rect();
 	new_command->vertex_start = context->draw_buffer.vertex_buffer_top;
 	new_command->vertex_end = current_command->vertex_start;
 	new_command->index_start = context->draw_buffer.index_buffer_top;
 	new_command->index_end = current_command->index_start;
 	current_command = new_command;
-}
-
-DrawCommandPoint Painter::_get_draw_command_point()
-{
-	DrawCommandPoint ret{};
-	ret.command = current_command;
-	ret.index_pos = current_command->index_end;
-	ret.vertex_pos = current_command->vertex_end;
-	return ret;
 }
 
 static void _move_draw_command_vertices(DrawCommand* it, usize vertex_start, usize vertex_end, v2 movement)
@@ -113,29 +104,6 @@ static void _move_draw_command_vertices(DrawCommand* it, usize vertex_start, usi
 	{
 		buffer->vertex_buffer[i + 0] += movement.x;
 		buffer->vertex_buffer[i + 1] += movement.y;
-	}
-}
-
-void Painter::_move_vertices_in_range(DrawCommandPoint p1, DrawCommandPoint p2, v2 movement)
-{
-	if (p1.command == p2.command)
-	{
-		_move_draw_command_vertices(p1.command, p1.vertex_pos, p2.vertex_pos, movement);
-	}
-	else if (p1.command->next == p2.command)
-	{
-		_move_draw_command_vertices(p1.command, p1.vertex_pos, p1.command->vertex_end, movement);
-		_move_draw_command_vertices(p2.command, p2.command->vertex_start, p2.vertex_pos, movement);
-	}
-	else
-	{
-		_move_draw_command_vertices(p1.command, p1.vertex_pos, p1.command->vertex_end, movement);
-		for (DrawCommand* it = p1.command->next; it != p2.command; it = it->next)
-		{
-			LGUI_ASSERT(it, "Invalid DrawCommandPoint range, p2 might not be in the same painter as p1, or behind p1");
-			_move_draw_command_vertices(it, it->vertex_start, it->vertex_end, movement);
-		}
-		_move_draw_command_vertices(p2.command, p2.command->vertex_start, p2.vertex_pos, movement);
 	}
 }
 
@@ -155,73 +123,25 @@ static void _internal_adjust_clip_rect_in_range(DrawCommand* command, v2 movemen
 	}
 }
 
-void Painter::_adjust_clip_rect_in_range(DrawCommandPoint p1, DrawCommandPoint p2, v2 movement, bool replace, u32 layout_depth, Rect new_clip)
-{
-	for (DrawCommand* it = p1.command; it != p2.command; it = it->next)
-	{
-		LGUI_ASSERT(it, "Invalid DrawCommandPoint range, p2 might not be in the same painter as p1, or behind p1");
-		_internal_adjust_clip_rect_in_range(it, movement, replace, layout_depth, new_clip);
-	}
-	_internal_adjust_clip_rect_in_range(p2.command, movement, replace, layout_depth, new_clip);
-}
-
 void Painter::push_clip_rect(Rect rect)
 {
 	LGUI_ASSERT(clip_rect_stack_top < MAX_CLIP_RECT, "Out of bounds");
 
 	_push_command();
 
-	ClipRect push{};
-	push.is_layout = false;
-	push.layout_depth = get_context()->layout_stack_top;
-	push.original_rect = rect;
-
 	Rect clip = get_clip_rect();
 	Rect new_rect = clip.clip(rect);
-	push.input_clip_rect = new_rect;
 
-	clip_rect_stack[clip_rect_stack_top] = push;
+	clip_rect_stack[clip_rect_stack_top] = new_rect;
 	++clip_rect_stack_top;
 
-	current_command->clip_rect = rect;
-	current_command->layout_depth = push.layout_depth;
-	current_command->is_layout = false;
-}
-
-void Painter::_push_layout_clip_rect(Rect rect, u32 layout_depth)
-{
-	LGUI_ASSERT(clip_rect_stack_top < MAX_CLIP_RECT, "Out of bounds");
-
-	_push_command();
-
-	ClipRect push{};
-	push.is_layout = true;
-	push.layout_depth = layout_depth;
-	push.original_rect = rect;
-
-	Rect clip = get_clip_rect();
-	Rect new_rect = clip.clip(rect);
-	push.input_clip_rect = new_rect;
-
-	clip_rect_stack[clip_rect_stack_top] = push;
-	++clip_rect_stack_top;
-
-	current_command->clip_rect = rect;
-	current_command->layout_depth = push.layout_depth;
-	current_command->is_layout = true;
-}
-
-Rect get_draw_clip_rect(Painter* painter)
-{
-	return painter->clip_rect_stack_top > 0 ? 
-		painter->clip_rect_stack[painter->clip_rect_stack_top - 1].original_rect : 
-		Rect{{0, 0}, get_context()->app_window_size};
+	current_command->clip_rect = new_rect;
 }
 
 Rect Painter::get_clip_rect()
 {
 	return clip_rect_stack_top > 0 ? 
-		clip_rect_stack[clip_rect_stack_top - 1].input_clip_rect : 
+		clip_rect_stack[clip_rect_stack_top - 1] : 
 		Rect{{0, 0}, get_context()->app_window_size};
 }
 
@@ -232,26 +152,6 @@ void Painter::pop_clip_rect()
 	_push_command();
 
 	--clip_rect_stack_top;
-
-	if (clip_rect_stack_top > 0)
-	{
-		ClipRect& clip = _get_internal_clip_rect();
-		current_command->clip_rect = get_draw_clip_rect(this);
-		current_command->layout_depth = clip.layout_depth;
-		current_command->is_layout = clip.is_layout;
-	}
-	else
-	{
-		current_command->clip_rect = get_draw_clip_rect(this);
-		current_command->layout_depth = 0;
-		current_command->is_layout = false;
-	}
-}
-
-ClipRect& Painter::_get_internal_clip_rect()
-{
-	LGUI_ASSERT(clip_rect_stack_top > 0, "Out of bounds");
-	return clip_rect_stack[clip_rect_stack_top - 1];
 }
 
 struct ColorU32 {
@@ -857,71 +757,6 @@ void Painter::draw_rounded_rectangle(v2 pos, v2 size, f32 corner_size[4], Color 
 void Painter::draw_rounded_rectangle(Rect rect, f32 corner_size[4], Color color)
 {
 	draw_rounded_rectangle(rect.top_left, rect.size(), corner_size, color);
-}
-
-DrawCommandPoint Painter::retroactive_allocate_rectangle(bool has_outline)
-{
-	usize count = has_outline ? 2 : 1;
-	if (!has_vertex_space(this, 4 * count) || !has_index_space(this, 2 * count))
-	{
-		return {};
-	}
-
-	DrawCommandPoint ret = _get_draw_command_point();
-
-	for (usize i = 0; i < count; ++i)
-	{
-		DrawIndex vx1 = push_vertex(this, {}, {}, {});
-		DrawIndex vx2 = push_vertex(this, {}, {}, {});
-		DrawIndex vx3 = push_vertex(this, {}, {}, {});
-		DrawIndex vx4 = push_vertex(this, {}, {}, {});
-
-		push_index_triangle(this, vx1, vx2, vx3);
-		push_index_triangle(this, vx2, vx3, vx4);
-	}
-
-	return ret;
-}
-
-void Painter::retroactive_draw_rectangle(DrawCommandPoint point, bool has_outline, v2 pos, v2 size, 
-	Color* colors, f32 outline_size)
-{
-	if (!point.command || size.x <= 0.f || size.y <= 0.f)
-	{
-		return;
-	}
-
-	v2 uv = v2{0.999f, 0.999f};
-
-	usize vertex_index = point.vertex_pos;
-	usize color_index = 4;
-	if (has_outline)
-	{
-		write_vertex(&vertex_index, pos, uv, color32_from_f32_color(colors[color_index]));
-		++color_index;
-		write_vertex(&vertex_index, pos + v2{size.x, 0.f}, uv, color32_from_f32_color(colors[color_index]));
-		++color_index;
-		write_vertex(&vertex_index, pos + v2{0.f, size.y}, uv, color32_from_f32_color(colors[color_index]));
-		++color_index;
-		write_vertex(&vertex_index, pos + size, uv, color32_from_f32_color(colors[color_index]));
-		++color_index;
-
-		v2 outline = {outline_size, outline_size};
-		size -= outline * 2.f;
-		pos += outline;
-	}
-
-	if (size.x <= 0.f || size.y <= 0.f) return;
-
-	color_index = 0;
-	write_vertex(&vertex_index, pos, uv, color32_from_f32_color(colors[color_index]));
-	++color_index;
-	write_vertex(&vertex_index, pos + v2{size.x, 0.f}, uv, color32_from_f32_color(colors[color_index]));
-	++color_index;
-	write_vertex(&vertex_index, pos + v2{0.f, size.y}, uv, color32_from_f32_color(colors[color_index]));
-	++color_index;
-	write_vertex(&vertex_index, pos + size, uv, color32_from_f32_color(colors[color_index]));
-	++color_index;
 }
 
 // TODO: remove raylib

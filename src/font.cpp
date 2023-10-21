@@ -96,23 +96,23 @@ bool Atlas::build()
 
 	auto character_count = character_end - character_start;
 
-	auto nodes = context->temp_arena.allocate_array<stbrp_node>(512);
+	auto nodes = context->temp_arena->allocate_array<stbrp_node>(512);
 	stbrp_context packer{};
 	stbrp_init_target(&packer, 512, 511, nodes.ptr, (int)nodes.length);
 
 	usize rects_count = rect_count(&context->atlas);
-	Slice<stbrp_rect> rects = context->temp_arena.allocate_array<stbrp_rect>(rects_count);
+	Slice<stbrp_rect> rects = context->temp_arena->allocate_array<stbrp_rect>(rects_count);
 	usize rects_top = 0;
 
 	for (Font* font = context->atlas.first_font; font; font = font->next)
 	{
-		Slice<byte> file = read_file(&context->temp_arena, font->name);
+		Slice<byte> file = read_file(context->temp_arena, font->name);
 		if (!file.ptr)
 		{
 			continue;
 		}
 
-		TempFont* temp_font = context->temp_arena.allocate_one<TempFont>();
+		TempFont* temp_font = context->temp_arena->allocate_one<TempFont>();
 		temp_font->font = font;
 		stbtt_InitFont(&temp_font->font_info, file.ptr, 0);
 
@@ -193,7 +193,7 @@ bool Atlas::build()
 	// TODO: Replace with non-raylib solution
 	{
 		// Convert to rgba
-		Slice<byte> texture_rgba = context->temp_arena.allocate_array<byte>(texture_width * texture_height * 4);
+		Slice<byte> texture_rgba = context->temp_arena->allocate_array<byte>(texture_width * texture_height * 4);
 		for (usize i = 0; i < texture_width * texture_height; ++i)
 		{
 			usize ind = i * 4;

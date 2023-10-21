@@ -109,19 +109,19 @@ using isize = ptrdiff_t;
 struct v2 {
 	f32 x, y;
 
-	v2 operator+(v2 other) const { return {x + other.x, y + other.y}; }
-	v2& operator+=(v2 other) { x += other.x; y += other.y; return *this; }
-	v2 operator-(v2 other) const { return {x - other.x, y - other.y}; }
-	v2& operator-=(v2 other) { x -= other.x; y -= other.y; return *this; }
-	v2 operator*(v2 other) const { return {x * other.x, y * other.y}; }
-	v2& operator*=(v2 other) { x *= other.x; y *= other.y; return *this; }
-	v2 operator*(f32 other) const { return {x * other, y * other}; }
-	v2& operator*=(f32 other) { x *= other; y *= other; return *this; }
-	v2 operator/(v2 other) const { return {x / other.x, y / other.y}; }
-	v2& operator/=(v2 other) { x /= other.x; y /= other.y; return *this; }
-	v2 operator/(f32 other) const { return {x / other, y / other}; }
-	v2& operator/=(f32 other) { x /= other; y /= other; return *this; }
-	v2 operator-() const { return {-x, -y}; }
+	inline v2 operator+(v2 other) const { return {x + other.x, y + other.y}; }
+	inline v2& operator+=(v2 other) { x += other.x; y += other.y; return *this; }
+	inline v2 operator-(v2 other) const { return {x - other.x, y - other.y}; }
+	inline v2& operator-=(v2 other) { x -= other.x; y -= other.y; return *this; }
+	inline v2 operator*(v2 other) const { return {x * other.x, y * other.y}; }
+	inline v2& operator*=(v2 other) { x *= other.x; y *= other.y; return *this; }
+	inline v2 operator*(f32 other) const { return {x * other, y * other}; }
+	inline v2& operator*=(f32 other) { x *= other; y *= other; return *this; }
+	inline v2 operator/(v2 other) const { return {x / other.x, y / other.y}; }
+	inline v2& operator/=(v2 other) { x /= other.x; y /= other.y; return *this; }
+	inline v2 operator/(f32 other) const { return {x / other, y / other}; }
+	inline v2& operator/=(f32 other) { x /= other; y /= other; return *this; }
+	inline v2 operator-() const { return {-x, -y}; }
 
 	// Used to convert unknown vector types into this one
 	template<typename T>

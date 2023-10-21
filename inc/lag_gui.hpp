@@ -194,13 +194,6 @@ struct DrawCommand {
 	bool is_layout;
 };
 
-// A point in the painters drawing sequence
-struct DrawCommandPoint {
-	DrawCommand* command;
-	usize vertex_pos;
-	usize index_pos;
-};
-
 struct Context;
 
 const u64 DRAW_INDEX_MAX = 1 << 16;
@@ -299,33 +292,101 @@ struct Style {
 	f32 line_height() const { return default_font->height + line_padding * 2.f; }
 };
 
-enum LayoutFlags {
-	LayoutFlag_IsHorizontal = 1 << 0,
-	LayoutFlag_Reverse = 1 << 1,
-	LayoutFlag_FixedH = 1 << 3, // Fixed horizontal size
-	LayoutFlag_FixedV = 1 << 4, // Fixed vertical size
-	LayoutFlag_Static = 1 << 5,
+enum BoxFlags {
+	BoxFlag_IsHorizontal = 1 << 0,
+	BoxFlag_Reverse = 1 << 1,
+	BoxFlag_FixedH = 1 << 3, // Fixed horizontal size
+	BoxFlag_FixedV = 1 << 4, // Fixed vertical size
+	BoxFlag_Static = 1 << 5,
 
-	LayoutFlag_ScrollX = 1 << 6,
-	LayoutFlag_ScrollY = 1 << 7,
-	LayoutFlag_Clip = 1 << 8,
-	LayoutFlag_DrawBackground = 1 << 9,
+	BoxFlag_ScrollX = 1 << 6,
+	BoxFlag_ScrollY = 1 << 7,
+	BoxFlag_Clip = 1 << 8,
+
+	BoxFlag_DrawRectangle = 1 << 9, // Will draw a full-size rectangle in the box
+	BoxFlag_DrawText = 1 << 10, // Will draw text in in the aligned position within the box
+	BoxFlag_DrawHook = 1 << 11,
 };
 
-struct Layout {
-	// Required if the layout has retained state
-	// Retained data stores the size of the layout, which is needed to correctly calculate widget positions for input
-	ID id;
-	RetainedData* retained_data;
+struct Box;
+struct Painter;
 
+using DrawHook = void(*)(Box* box, Painter& painter, Rect rect);
+
+enum SizeTypes {
+	SizeType_Px,
+	SizeType_Percent, // Percentage of parent
+	SizeType_Fit, // Size of children
+};
+
+struct Size {
+	u32 type;
+	f32 value;
+};
+
+struct Size2 {
+	Size x;
+	Size y;
+};
+
+inline Size px(f32 v) { return {SizeType_Px, v}; }
+inline Size2 px(f32 x, f32 y) { return {{SizeType_Px, x}, {SizeType_Px, y}}; }
+inline Size pc(f32 v) { return {SizeType_Percent, v}; }
+inline Size2 pc(f32 x, f32 y) { return {{SizeType_Percent, x}, {SizeType_Percent, y}}; }
+inline Size fit() { return {SizeType_Fit, 1.f}; }
+
+/*
+enum PaintCommandTypes {
+	PaintCommandType_Invalid,
+	PaintCommandType_Rect1col,
+	PaintCommandType_Rect4col,
+	PaintCommandType_Text,
+	PaintCommandType_ConvexShape,
+};
+
+struct PaintCommandRect1Col {
+	v2 pos;
+	v2 size;
+	u32 color;
+};
+
+struct PaintCommandRect4Col {
+	v2 pos;
+	v2 size;
+	u32 color[4];
+};
+
+struct PaintCommandText {
+	const char* text;
+	usize text_len;
+	v2 pos;
+	u32 color;
+};
+
+struct PaintCommandHeader {
+	PaintCommandHeader* next;
+	u32 type;
+};
+*/
+
+struct Box {
+	Box* parent;
+	Box* next;
+	Box* prev;
+	Box* first_child;
+	Box* last_child;
+
+	Box* prev_unknown_size;
+
+	Box* hash_next;
+
+	ID id;
 	u32 flags;
 	// Counter for generating IDs
 	i32 counter;
 
 	// The space between elements on the axis
 	f32 spacing;
-
-	// TODO: Implement
 	v2 padding;
 
 	// Alignment of child elements within the layout
@@ -333,49 +394,54 @@ struct Layout {
 	i8 h_align;
 	i8 v_align;
 
-	// The position that the layout starts at
-	// If the layout is reverse, this value will be at the opposite side of the rect
-	v2 start;
-	// The offset added to every allocated widget position (used for scrolling)
-	v2 offset;
-	// Cursor position on the axis (horizontal or vertical)
-	f32 cursor;
-	// Growing value to calculate the size on the cross axis
-	f32 cross_axis_max;
+	Size size[2];
 
-	v2 max_size;
-	// The size used when creating the layout
-	v2 original_size;
+	// Final size of the layout
+	v2 calculated_size;
+	bool size_calculated;
+	// Added to by child elements
+	// + on axis, max() on cross-axis
+	v2 used_size;
+	u32 child_count;
+	// For each axis, how many of the children were able to calculate their size
+	u32 known_size_child_count;
+	v2 calculated_position;
 
-	// The drawcommand state when this layout started
-	// Used to iterate over draw command and move elements
-	DrawCommandPoint draw_command_point;
+	//PaintCommandHeader* first_draw_command;
+	//PaintCommandHeader* last_draw_command;
 
-	// Background
-	bool background_has_outline;
-	f32 background_outline_size;
-	Color background_colors[8];
-	DrawCommandPoint background_draw_point;
+	DrawHook draw_hook;
+	void* draw_user_data;
 
-	Rect allocate(v2 size);
+	// Styling
+	Color color;
+	Color outline_color;
+	Color text_color;
+	f32 outline_size;
+	const char* text;
+	usize text_length;
+	Font* font;
 
-	Rect get_cursor_rect();
-	// Pushes the cursor of this layout to match the
-	void end_child_layout(Layout* child);
+	// Safety check
+	bool d_ended;
 
-	// Get the full-size rectangle of the layout, including the cursor
-	// If the layout is fixed on an axis then it will have the provided size
-	v2 get_full_size();
+	// Adds the child box to the tree
+	void append_child(Box* box);
 
-	// Get the full-size rectangle of the layout, including the cursor
-	Rect get_stretched_rect();
-	v2 get_stretched_size();
+	void begin();
 
-	// Get a rect that includes all the allocated element rects
-	Rect get_used_rect();
+	// Calculates parent (this) box size, if it fails it adds it to the unknown size list
+	void end();
 
-	v2 get_scroll_pos();
-	void set_scroll_pos(v2 scroll_pos);
+	// at_end indicates if the node has ended (or has no (more) children)
+	void try_calculate_size(bool at_end, bool at_post);
+	void add_used_size(v2 pixel_size);
+
+	// Calculate size after the initial build phase
+	// Asserts if size cannot be calculated (which probably means the unknown size list is incorrect, or there is a bug)
+	void post_calculate_size();
+
+	Rect prev_rect() { return Rect::from_pos_size(calculated_position, calculated_size); }
 };
 
 struct Panel;
@@ -403,7 +469,7 @@ struct Painter {
 
 	u32 frame_last_updated;
 
-	ClipRect clip_rect_stack[MAX_CLIP_RECT];
+	Rect clip_rect_stack[MAX_CLIP_RECT];
 	u32 clip_rect_stack_top;
 
 	// Call on begin_panel
@@ -413,14 +479,8 @@ struct Painter {
 	void _push_command();
 
 	void push_clip_rect(Rect rect);
-	void _push_layout_clip_rect(Rect rect, u32 layout_depth);
 	void pop_clip_rect();
 	Rect get_clip_rect();
-	ClipRect& _get_internal_clip_rect();
-
-	DrawCommandPoint _get_draw_command_point();
-	void _move_vertices_in_range(DrawCommandPoint p1, DrawCommandPoint p2, v2 movement);
-	void _adjust_clip_rect_in_range(DrawCommandPoint p1, DrawCommandPoint p2, v2 movement, bool replace, u32 layout_depth, Rect new_clip);
 
 	//void draw_triangle();
 	void draw_rectangle(v2 pos, v2 size, Color color, v2 uv1, v2 uv2);
@@ -461,11 +521,6 @@ struct Painter {
 	// corner_size = [top_left, top_right, bottom_left, bottom_right]
 	void draw_rounded_rectangle(v2 pos, v2 size, f32 corner_size[4], Color color);
 	void draw_rounded_rectangle(Rect rect, f32 corner_size[4], Color color);
-
-	// Retroactive drawing
-	DrawCommandPoint retroactive_allocate_rectangle(bool has_outline);
-	// Requires collor array of size 4, or 8 if it has an outline
-	void retroactive_draw_rectangle(DrawCommandPoint point, bool has_outline, v2 pos, v2 size, Color* colors, f32 outline_size = 0.f);
 };
 
 void rl_render();
@@ -576,6 +631,8 @@ enum {
 };
 
 const usize RETAINED_TABLE_SIZE = 16;
+//const usize BOX_TABLE_SIZE = 32;
+const usize BOX_TABLE_SIZE = 512 * 16;
 const usize PANEL_NAME_SIZE = 16;
 
 struct Panel {
@@ -614,6 +671,13 @@ struct Panel {
 	// Retained data of contained elements
 	RetainedData* retained_data_lookup[RETAINED_TABLE_SIZE];
 
+	// Boxs from previous and current frame
+	// Swap between these two every frame
+	Box** box_lookup[2];
+	Box* last_unknown_size;
+
+	Box* root_box;
+
 	// Rendering
 	Painter painter;
 	Painter& get_painter() { return is_docked() ? parent_dock->root_panel->painter : painter; }
@@ -627,7 +691,7 @@ struct Panel {
 const usize ID_STACK_SIZE = 32;
 const usize PANEL_STACK_SIZE = 32;
 const usize STYLE_STACK_SIZE = 32;
-const usize LAYOUT_STACK_SIZE = 32;
+const usize BOX_STACK_SIZE = 32;
 const usize PANEL_MAP_SIZE = 32;
 
 struct Context {
@@ -666,8 +730,9 @@ struct Context {
 
 	// Cleared on shutdown
 	Arena arena;
-	// Cleared every frame
-	Arena temp_arena;
+	// Cleared every other frame (swaps between them every frame
+	Arena* temp_arena;
+	Arena temp_arena_arr[2];
 
 	// Stored in main arena
 	Panel* first_free_panel;
@@ -681,13 +746,9 @@ struct Context {
 	Style style_stack[STYLE_STACK_SIZE];
 	u32 style_stack_top;
 
-	// Layout
-	Layout layout_stack[LAYOUT_STACK_SIZE];
-	u32 layout_stack_top;
-	bool layout_next_draw_background;
-	bool layout_background_has_outline;
-	f32 layout_background_outline_size;
-	Color layout_background_colors[8];
+	// Box
+	Box* box_stack[BOX_STACK_SIZE];
+	u32 box_stack_top;
 
 	// Panel lookup
 	// Maps ID to panel
@@ -729,33 +790,43 @@ void pop_style();
 const Style& get_style();
 void set_default_style(const Style& style);
 
+// Only allocate the box
+Box* _allocate_box(ID id);
+// Allocate box and add it to the parent box
+Box* make_box(ID id, Size2 size, u32 flags);
+Box* make_box(const char* name_id, Size2 size, u32 flags);
+// Used for layouts (any box with children)
+void push_box(Box* box);
+Box* push_box(ID id, Size2 size, u32 flags);
+Box* push_box(const char* name_id, Size2 size, u32 flags);
+Box* pop_box();
+Box* get_box();
 
-bool begin_layout(const Layout& layout);
-void end_layout();
-Rect layout_next(v2 size);
-Layout& get_layout();
+const Size2 DEFAULT_LAYOUT_SIZE = {{SizeType_Fit, 1.f}, {SizeType_Fit, 1.f}};
 
-bool layout_static(ID id, Rect rect, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing, v2 padding = {}, u32 flags = 0);
-bool layout_unknown(ID id, v2 size, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing, v2 padding = {}, u32 flags = 0);
-bool layout_horizontal(i8 h_align = -1, i8 v_align = -1, v2 size = {0.f, 0.f}, bool reverse = false, f32 spacing = -1.f, v2 padding = {}, u32 flags = 0);
-bool layout_vertical(i8 h_align = -1, i8 v_align = -1, v2 size = {0.f, 0.f}, bool reverse = false, f32 spacing = -1.f, v2 padding = {}, u32 flags = 0);
-// Horizontal layout with the height of a line and the width of the layout
-bool layout_line(i8 h_align, i8 v_align = 0, bool reverse = false, f32 spacing = -1.f);
+Box* layout_horizontal(i8 h_align, i8 v_align, Size2 size = DEFAULT_LAYOUT_SIZE);
+Box* layout_vertical(i8 h_align, i8 v_align, Size2 size = DEFAULT_LAYOUT_SIZE);
+// Does the same thing as pop_box
+void layout_end();
+#define LGUI_H_LAYOUT(...) LGUI_DEFER_LOOP(lgui::layout_horizontal(__VA_ARGS__), lgui::layout_end())
+#define LGUI_V_LAYOUT(...) LGUI_DEFER_LOOP(lgui::layout_vertical(__VA_ARGS__), lgui::layout_end())
 
-// Layout macro helpers (you don't have to use these if you don't want to)
-#define LGUI_H_LAYOUT(...) LGUI_DEFER_LOOP(lgui::layout_horizontal(__VA_ARGS__), lgui::end_layout())
-#define LGUI_V_LAYOUT(...) LGUI_DEFER_LOOP(lgui::layout_vertical(__VA_ARGS__), lgui::end_layout())
-#define LGUI_LINE_LAYOUT(...) LGUI_DEFER_LOOP(lgui::layout_line(__VA_ARGS__), lgui::end_layout())
+//bool layout_static(ID id, Rect rect, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing, v2 padding = {}, u32 flags = 0);
+//bool layout_unknown(ID id, v2 size, bool horizontal, bool reverse, i8 line_h_align, i8 line_v_align, f32 spacing, v2 padding = {}, u32 flags = 0);
+//bool layout_horizontal(i8 h_align = -1, i8 v_align = -1, v2 size = {0.f, 0.f}, bool reverse = false, f32 spacing = -1.f, v2 padding = {}, u32 flags = 0);
+//bool layout_vertical(i8 h_align = -1, i8 v_align = -1, v2 size = {0.f, 0.f}, bool reverse = false, f32 spacing = -1.f, v2 padding = {}, u32 flags = 0);
+//// Horizontal layout with the height of a line and the width of the layout
+//bool layout_line(i8 h_align, i8 v_align = 0, bool reverse = false, f32 spacing = -1.f);
+
+// Box macro helpers (you don't have to use these if you don't want to)
+//#define LGUI_H_LAYOUT(...) LGUI_DEFER_LOOP(lgui::layout_horizontal(__VA_ARGS__), lgui::end_layout())
+//#define LGUI_V_LAYOUT(...) LGUI_DEFER_LOOP(lgui::layout_vertical(__VA_ARGS__), lgui::end_layout())
+//#define LGUI_LINE_LAYOUT(...) LGUI_DEFER_LOOP(lgui::layout_line(__VA_ARGS__), lgui::end_layout())
 
 // Generate an ID based on position in the layout
-ID layout_generate_id();
-f32 layout_width();
-f32 layout_height();
-
-void set_next_layout_background(Color color_in[4], bool outline, Color color_outline[4], f32 outline_size);
-void set_next_layout_background(Color color, Color outline_color, f32 outline_size);
-void set_next_layout_background(Color color);
-
+ID box_generate_id();
+//f32 box_width();
+//f32 box_height();
 
 Panel* get_panel(ID id);
 Panel* get_current_panel();
@@ -787,7 +858,8 @@ InputResult checkbox(const char* name, bool* value);
 InputResult radio_button(const char* name, int option, int* selected);
 InputResult drag_value(const char* name, f32* value);
 bool collapse_header(const char* name);
-void text(const char* text, bool wrap = false);
+void text(const char* text);
+//void text(const char* text, bool wrap = false);
 bool input_text(char* buffer, usize buffer_size, bool wrap = false);
 void separator();
 // Only works in vertical layout

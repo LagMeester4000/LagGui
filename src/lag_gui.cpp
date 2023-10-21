@@ -33,6 +33,7 @@ static void dock_into(Panel* from, Panel* into, DockEntry entry);
 static void push_panel(Panel* panel);
 static void pop_panel();
 static void _delete_old_panels();
+static void _draw_boxes(Painter& painter, Box* root, v2 start_pos);
 
 static f32 lerp(f32 v1, f32 v2, f32 t)
 {
@@ -50,7 +51,9 @@ Context* init()
 	g_context = ret;
 
 	ret->arena = arena;
-	ret->temp_arena = Arena::from_memory(malloc(mem_size), mem_size);
+	ret->temp_arena_arr[0] = Arena::from_memory(malloc(mem_size), mem_size);
+	ret->temp_arena_arr[1] = Arena::from_memory(malloc(mem_size), mem_size);
+	ret->temp_arena = &ret->temp_arena_arr[0];
 
 	ret->draw_buffer.allocate();
 	ret->current_frame = 1;
@@ -61,7 +64,8 @@ Context* init()
 void deinit()
 {
 	free(g_context->arena.ptr);
-	free(g_context->temp_arena.ptr);
+	free(g_context->temp_arena_arr[0].ptr);
+	free(g_context->temp_arena_arr[1].ptr);
 
 	g_context = nullptr;
 }
@@ -77,7 +81,9 @@ void begin_frame(f32 delta_time)
 
 	context->delta_time = delta_time;
 
-	context->temp_arena.reset();
+	// Swap temorary arenas
+	context->temp_arena = &context->temp_arena_arr[context->current_frame % 2];
+	context->temp_arena->reset();
 
 	// Find overlap panel
 	{
@@ -303,7 +309,7 @@ static void push_dock_command(const DockCommand& command)
 {
 	Context* context = get_context();
 
-	DockCommand* new_command = context->temp_arena.allocate_one<DockCommand>();
+	DockCommand* new_command = context->temp_arena->allocate_one<DockCommand>();
 	*new_command = command;
 	LGUI_SLL_APPEND_END(new_command, next, context->first_dock_command, context->last_dock_command);
 }
@@ -1034,7 +1040,7 @@ static void _delete_old_panels()
 			if (it->frame_last_updated != current_frame)
 			{
 				// Schedule panel to be deleted
-				ToDeletePanel* delete_node = context->temp_arena.allocate_one<ToDeletePanel>();
+				ToDeletePanel* delete_node = context->temp_arena->allocate_one<ToDeletePanel>();
 				delete_node->panel = it;
 				delete_node->next = to_delete;
 				to_delete = delete_node;
@@ -1145,6 +1151,7 @@ bool begin_panel(const char* name, Rect rect, PanelFlag flags)
 		panel->get_painter()._start_painter();
 	}
 
+	panel->last_unknown_size = nullptr;
 	panel->flags = flags;
 
 	if (panel->frame_last_updated == 0)
@@ -1152,6 +1159,21 @@ bool begin_panel(const char* name, Rect rect, PanelFlag flags)
 		// First usage
 		panel->rect = rect;
 		panel->open = true;
+
+		// Reset box lookup
+		panel->box_lookup[0] = context->temp_arena->allocate_array<Box*>(BOX_TABLE_SIZE).ptr;
+		panel->box_lookup[1] = context->temp_arena->allocate_array<Box*>(BOX_TABLE_SIZE).ptr;
+	}
+	else if (panel->frame_last_updated + 1 < context->current_frame)
+	{
+		// Reset box lookup
+		panel->box_lookup[0] = context->temp_arena->allocate_array<Box*>(BOX_TABLE_SIZE).ptr;
+		panel->box_lookup[1] = context->temp_arena->allocate_array<Box*>(BOX_TABLE_SIZE).ptr;
+	}
+	else
+	{
+		// Normal new frame
+		panel->box_lookup[context->current_frame % 2] = context->temp_arena->allocate_array<Box*>(BOX_TABLE_SIZE).ptr;
 	}
 	panel->frame_last_updated = context->current_frame;
 
@@ -1267,7 +1289,8 @@ bool begin_panel(const char* name, Rect rect, PanelFlag flags)
 		open = false;
 	}
 
-	layout_static(panel->id + 1, panel->content, false, false, -1, 0, 2.f, {}, LayoutFlag_Clip);
+	//layout_static(panel->id + 1, panel->content, false, false, -1, 0, 2.f, {}, BoxFlag_Clip);
+	panel->root_box = push_box("root_panel", px(panel->content.width(), panel->content.height()), BoxFlag_Static | BoxFlag_Clip);
 
 	if (!open)
 	{
@@ -1282,7 +1305,17 @@ void end_panel()
 	Panel* panel = get_current_panel();
 	Painter& painter = panel->get_painter();
 
-	end_layout();
+	//end_layout();
+	pop_box();
+
+	// Calculate missing box sizes
+	for (Box* it = panel->last_unknown_size; it; it = it->prev_unknown_size)
+	{
+		it->post_calculate_size();
+	}
+
+	// Draw boxes
+	_draw_boxes(painter, panel->root_box, panel->content.top_left);
 
 	panel->end_draw_pos = panel->draw_pos;
 	v2 draw_size = panel->end_draw_pos - panel->start_draw_pos;
@@ -1321,6 +1354,8 @@ void end_panel()
 	{
 		prev_top_panel->get_painter()._restart_painter();
 	}
+
+	painter._push_command();
 
 	pop_id();
 	pop_panel();
@@ -1565,549 +1600,412 @@ void DrawBuffer::allocate()
 	index_buffer = (DrawIndex*)context->arena.allocate(index_buffer_length * index_size);
 }
 
-Rect Layout::allocate(v2 size)
-{
-	if (cursor != 0.f)
-	{
-		cursor += (spacing) * ((flags & LayoutFlag_Reverse) ? -1.f : 1.f);
-	}
-
-	// New algorithm
-	if (flags & LayoutFlag_IsHorizontal)
-	{
-		Rect ret;
-
-		if (v_align == -1)
-		{
-			f32 reverse_add = (flags & LayoutFlag_Reverse) ? -1.f : 0.f;
-			v2 pos = start + v2{cursor + reverse_add * size.x, 0.f};
-			ret = Rect::from_pos_size(pos, size);
-		}
-		else if (v_align == 1)
-		{
-			f32 reverse_add = (flags & LayoutFlag_Reverse) ? -1.f : 0.f;
-			v2 pos = start + v2{cursor + reverse_add * size.x, -size.y};
-			ret = Rect::from_pos_size(pos, size);
-		}
-		else
-		{
-			LGUI_ASSERT(v_align == 0, "Non-valid v_align value");
-			f32 reverse_add = (flags & LayoutFlag_Reverse) ? -1.f : 0.f;
-			v2 pos = start + v2{cursor + reverse_add * size.x, -size.y / 2.f};
-			ret = Rect::from_pos_size(pos, size);
-		}
-
-		cursor += (size.x) * ((flags & LayoutFlag_Reverse) ? -1.f : 1.f);
-		cursor = floorf(cursor);
-
-		if (size.y > cross_axis_max)
-		{
-			cross_axis_max = size.y;
-		}
-
-#ifdef LGUI_DEBUG_INFO
-		if (d_show_layout_allocations)
-		{
-			debug_rect(ret, "alloc", {1.f, 0.f, 0.f, 0.7f});
-		}
-#endif
-
-		ret.move(offset);
-		return ret;
-	}
-	else // Vertical
-	{
-		Rect ret;
-
-		if (h_align == -1)
-		{
-			f32 reverse_add = (flags & LayoutFlag_Reverse) ? -1.f : 0.f;
-			v2 pos = start + v2{0.f, cursor + reverse_add * size.y};
-			ret = Rect::from_pos_size(pos, size);
-		}
-		else if (h_align == 1)
-		{
-			f32 reverse_add = (flags & LayoutFlag_Reverse) ? -1.f : 0.f;
-			v2 pos = start + v2{-size.x, cursor + reverse_add * size.y};
-			ret = Rect::from_pos_size(pos, size);
-		}
-		else
-		{
-			LGUI_ASSERT(h_align == 0, "Non-valid h_align value");
-			f32 reverse_add = (flags & LayoutFlag_Reverse) ? -1.f : 0.f;
-			v2 pos = start + v2{-size.x / 2.f, cursor + reverse_add * size.y};
-			ret = Rect::from_pos_size(pos, size);
-		}
-
-		cursor += (size.y) * ((flags & LayoutFlag_Reverse) ? -1.f : 1.f);
-		cursor = floorf(cursor);
-
-		if (size.x > cross_axis_max)
-		{
-			cross_axis_max = size.x;
-		}
-
-#ifdef LGUI_DEBUG_INFO
-		if (d_show_layout_allocations)
-		{
-			debug_rect(ret, "alloc", {1.f, 0.f, 0.f, 0.7f});
-		}
-#endif
-
-		ret.move(offset);
-		return ret;
-	}
-}
-
-Rect Layout::get_cursor_rect()
-{
-	if (flags & LayoutFlag_IsHorizontal)
-	{
-		return Rect::from_2_pos(start + v2{cursor, 0.f}, start + v2{cursor, max_size.y});
-	}
-	else
-	{
-		return Rect::from_2_pos(start + v2{0.f, cursor}, start + v2{max_size.x, cursor});
-	}
-}
-
-void Layout::end_child_layout(Layout* child)
-{
-	// Move the child layout if applicable
-	if (!(child->flags & LayoutFlag_Static))
-	{
-		// The vertices of this child layout needs to be moved
-		v2 child_size = child->get_full_size();
-		Rect used_rect = child->get_used_rect();
-
-		const float min = 0.001f;
-
-		// Allocate the child layout into the parent layout
-		Rect full_new_pos = allocate(child_size);
-		Rect new_pos = full_new_pos.pad(child->padding).align_size(used_rect.size(), child->h_align, child->v_align);
-		v2 movement = new_pos.top_left - used_rect.top_left;
-		movement = v2{
-			LGUI_ABS(movement.x) < min ? 0.f : movement.x,
-			LGUI_ABS(movement.y) < min ? 0.f : movement.y
-		};
-
-#ifdef LGUI_DEBUG_INFO
-		if (d_show_layout_rects)
-		{
-			debug_rect(full_new_pos, "full_new_pos", { 0, 0, 1, 0.7f });
-			debug_rect(used_rect, "used_rect", { 1, 0, 0, 0.7f });
-			debug_rect(new_pos, "new_pos", { 0, 1, 0, 0.7f });
-		}
-#endif
-
-		// Due to the offset value being updated, this most likely only runs the first time a panel is rendered
-		if (movement.length() > min)
-		{
-			Painter& painter = get_current_panel()->get_painter();
-			DrawCommandPoint point = painter._get_draw_command_point();
-
-			painter._move_vertices_in_range(child->draw_command_point, point, movement);
-
-			// Move clip rectangles
-			if (!(child->flags & LayoutFlag_Clip))
-			{
-				painter._adjust_clip_rect_in_range(child->draw_command_point, point, movement, false, 
-					get_context()->layout_stack_top + 1, {});
-			}
-
-			//printf("Updated Layout Vertices\n");
-		}
-
-		// Move and adjust clip rectangles
-		if (child->flags & LayoutFlag_Clip)
-		{
-			Painter& painter = get_current_panel()->get_painter();
-			DrawCommandPoint point = painter._get_draw_command_point();
-			painter._adjust_clip_rect_in_range(child->draw_command_point, point, {},
-				true, get_context()->layout_stack_top + 1, full_new_pos.pad(child->padding));
-		}
-
-		// Set offset for next time the layout is used
-		child->retained_data->pos += movement;
-		child->start += movement; // For future use
-
-		// Store the previous size
-		child->retained_data->value_v2 = used_rect.size();
-
-		// Store the previous rect
-		child->retained_data->rect = full_new_pos;
-	}
-}
-
-v2 Layout::get_full_size()
-{
-	if (flags & LayoutFlag_IsHorizontal)
-	{
-		f32 size = LGUI_MAX(original_size.x, LGUI_ABS(cursor + padding.x * 2.f));
-		f32 cross_size = LGUI_MAX(original_size.y, LGUI_ABS(cross_axis_max + padding.y * 2.f));
-		v2 ret = v2{size, cross_size};
-		if (flags & LayoutFlag_FixedH) ret.x = original_size.x;
-		if (flags & LayoutFlag_FixedV) ret.y = original_size.y;
-		return ret;
-	}
-	else
-	{
-		f32 size = LGUI_MAX(original_size.y, LGUI_ABS(cursor) + padding.y * 2.f);
-		f32 cross_size = LGUI_MAX(original_size.x, LGUI_ABS(cross_axis_max) + padding.x * 2.f);
-		v2 ret = v2{cross_size, size};
-		if (flags & LayoutFlag_FixedH) ret.x = original_size.x;
-		if (flags & LayoutFlag_FixedV) ret.y = original_size.y;
-		return ret;
-	}
-}
-
-Rect Layout::get_stretched_rect()
-{
-	if (flags & LayoutFlag_IsHorizontal)
-	{
-		f32 size = LGUI_MAX(original_size.x, LGUI_ABS(cursor));
-		f32 cross_size = LGUI_MAX(original_size.y, LGUI_ABS(cross_axis_max));
-		return Rect::from_2_pos(start, start + v2{size, cross_size});
-	}
-	else
-	{
-		f32 size = LGUI_MAX(original_size.y, LGUI_ABS(cursor));
-		f32 cross_size = LGUI_MAX(original_size.x, LGUI_ABS(cross_axis_max));
-		return Rect::from_2_pos(start, start + v2{cross_size, size});
-	}
-}
-
-v2 Layout::get_stretched_size()
-{
-	if (flags & LayoutFlag_IsHorizontal)
-	{
-		f32 size = LGUI_MAX(original_size.x, LGUI_ABS(cursor + padding.x * 2.f));
-		f32 cross_size = LGUI_MAX(original_size.y, LGUI_ABS(cross_axis_max + padding.y * 2.f));
-		return v2{size, cross_size};
-	}
-	else
-	{
-		f32 size = LGUI_MAX(original_size.y, LGUI_ABS(cursor) + padding.y * 2.f);
-		f32 cross_size = LGUI_MAX(original_size.x, LGUI_ABS(cross_axis_max) + padding.x * 2.f);
-		return v2{cross_size, size};
-	}
-}
-
-Rect Layout::get_used_rect()
-{
-	if (flags & LayoutFlag_IsHorizontal)
-	{
-		if (v_align == -1)
-		{
-			return Rect::from_2_pos(start, start + v2{cursor, cross_axis_max});
-		}
-		else if (v_align == 1)
-		{
-			return Rect::from_2_pos(start, start + v2{cursor, -cross_axis_max});
-		}
-		else
-		{
-			LGUI_ASSERT(v_align == 0, "Invalid v_align value");
-			return Rect::from_2_pos(start + v2{0.f, -cross_axis_max / 2.f}, start + v2{cursor, cross_axis_max / 2.f});
-		}
-	}
-	else
-	{
-		if (h_align == -1)
-		{
-			return Rect::from_2_pos(start, start + v2{cross_axis_max, cursor});
-		}
-		else if (h_align == 1)
-		{
-			return Rect::from_2_pos(start, start + v2{-cross_axis_max, cursor});
-		}
-		else
-		{
-			LGUI_ASSERT(h_align == 0, "Invalid h_align value");
-			return Rect::from_2_pos(start + v2{-cross_axis_max / 2.f, 0.f}, start + v2{cross_axis_max / 2.f, cursor});
-		}
-	}
-}
-
-v2 Layout::get_scroll_pos()
-{
-	return retained_data->scroll;
-}
-
-void Layout::set_scroll_pos(v2 scroll_pos)
-{
-	retained_data->scroll = scroll_pos;
-}
-
-static void layout_take_background(Layout& layout)
-{
-	Context* context = get_context();
-
-	if (context->layout_next_draw_background)
-	{
-		context->layout_next_draw_background = false;
-		layout.flags |= LayoutFlag_DrawBackground;
-		memcpy(layout.background_colors, context->layout_background_colors, sizeof(Color) * 8);
-		layout.background_has_outline = context->layout_background_has_outline;
-		layout.background_outline_size = context->layout_background_outline_size;
-		layout.background_draw_point = get_painter().retroactive_allocate_rectangle(layout.background_has_outline);
-	}
-}
-
-bool begin_layout(const Layout& layout)
-{
-	Context* context = get_context();
-
-	LGUI_ASSERT(context->layout_stack_top < LAYOUT_STACK_SIZE, "Layout stack is full");
-	Layout& top = context->layout_stack[context->layout_stack_top];
-	top = layout;
-	++context->layout_stack_top;
-
-	layout_take_background(top);
-	top.draw_command_point = get_current_panel()->get_painter()._get_draw_command_point();
-
-	if (layout.flags & LayoutFlag_Clip)
-	{
-		get_painter()._push_layout_clip_rect(layout.retained_data->rect, context->layout_stack_top);
-	}
-
-	return true;
-}
-
-Layout& get_layout()
-{
-	Context* context = get_context();
-
-	LGUI_ASSERT(context->layout_stack_top > 0, "No layout on layout stack");
-	return context->layout_stack[context->layout_stack_top - 1];
-}
-
-void end_layout()
-{
-	Context* context = get_context();
-
-	// End clip rect
-	{
-		//Layout& layout = context->layout_stack[context->layout_stack_top]; // This is allowed
-		Layout& layout = get_layout();
-		if (layout.flags & LayoutFlag_Clip)
-		{
-			get_painter().pop_clip_rect();
-		}
-	}
-
-	LGUI_ASSERT(context->layout_stack_top > 0, "No layout on layout stack");
-	--context->layout_stack_top;
-
-	if (context->layout_stack_top > 0)
-	{
-		Layout& pop_layout = context->layout_stack[context->layout_stack_top]; // This is allowed
-		Layout& layout = get_layout();
-		layout.end_child_layout(&pop_layout);
-	}
-	else
-	{
-		// Move and adjust clip rectangles
-		Layout& pop_layout = context->layout_stack[context->layout_stack_top]; // This is allowed
-		if (pop_layout.flags & LayoutFlag_Clip)
-		{
-			Painter& painter = get_current_panel()->get_painter();
-			DrawCommandPoint point = painter._get_draw_command_point();
-			painter._adjust_clip_rect_in_range(pop_layout.draw_command_point, point, {},
-				true, get_context()->layout_stack_top + 1, pop_layout.retained_data->rect.pad(pop_layout.padding));
-		}
-	}
-
-	// Draw background
-	{
-		Layout& layout = context->layout_stack[context->layout_stack_top]; // This is allowed
-		if (layout.flags & LayoutFlag_DrawBackground)
-		{
-			Rect rect = layout.retained_data->rect;
-			get_painter().retroactive_draw_rectangle(
-				layout.background_draw_point, layout.background_has_outline, 
-				rect.top_left, rect.size(), layout.background_colors, layout.background_outline_size
-			);
-		}
-	}
-
-	pop_id();
-}
-
-v2 layout_cursor_pos(const Layout& layout)
-{
-	if (layout.flags & LayoutFlag_IsHorizontal)
-	{
-		return layout.start + v2{layout.cursor, 0};
-	}
-	else
-	{
-		return layout.start + v2{0, layout.cursor};
-	}
-}
-
-bool layout_unknown(ID id, v2 size, bool horizontal, bool reverse, i8 h_align, i8 v_align, f32 spacing, v2 padding, u32 flags)
-{
-	push_id_raw(id);
-	Layout push{};
-	push.id = id;
-	push.retained_data = get_retained_data(id);
-	push.original_size = size;
-	push.max_size.x = LGUI_MAX(push.original_size.x, push.retained_data->value_v2.x);
-	push.max_size.y = LGUI_MAX(push.original_size.y, push.retained_data->value_v2.y);
-	push.flags |= flags;
-	push.flags |= horizontal ? LayoutFlag_IsHorizontal : 0;
-	push.flags |= reverse ? LayoutFlag_Reverse : 0;
-	push.h_align = h_align;
-	push.v_align = v_align;
-	push.spacing = spacing;
-	push.padding = padding;
-	push.offset = -push.retained_data->scroll;
-	push.offset.x = floorf(push.offset.x);
-	push.offset.y = floorf(push.offset.y);
-
-	// Set (predict) start position
-	Rect cursor_rect = get_layout().get_cursor_rect();
-	push.start = cursor_rect.top_left + push.retained_data->pos;
-
-	return begin_layout(push);
-}
-
-bool layout_static(ID id, Rect rect, bool horizontal, bool reverse, i8 h_align, i8 v_align, f32 spacing, v2 padding, u32 flags)
-{
-	push_id_raw(id);
-	Layout push{};
-	push.id = id;
-	push.retained_data = get_retained_data(id);
-	push.retained_data->rect = rect;
-	push.original_size = rect.size();
-	push.max_size.x = LGUI_MAX(rect.width(), push.retained_data->value_v2.x);
-	push.max_size.y = LGUI_MAX(rect.height(), push.retained_data->value_v2.y);
-	push.flags |= flags;
-	push.flags |= horizontal ? LayoutFlag_IsHorizontal : 0;
-	push.flags |= reverse ? LayoutFlag_Reverse : 0;
-	push.flags |= LayoutFlag_FixedH | LayoutFlag_FixedV | LayoutFlag_Static;
-	push.h_align = h_align;
-	push.v_align = v_align;
-	push.spacing = spacing;
-	push.padding = padding;
-	push.offset = -push.retained_data->scroll;
-
-	if (horizontal)
-	{
-		if (reverse)
-		{
-			push.start = rect.top_right();
-		}
-		else
-		{
-			push.start = rect.top_left;
-		}
-	}
-	else
-	{
-		if (reverse)
-		{
-			push.start = rect.bottom_left();
-		}
-		else
-		{
-			push.start = rect.top_left;
-		}
-	}
-
-
-	return begin_layout(push);
-}
-
-bool layout_horizontal(i8 h_align, i8 v_align, v2 size, bool reverse, f32 spacing, v2 padding, u32 flags)
-{
-	if (spacing == -1.f) spacing = get_style().default_layout_spacing;
-	return layout_unknown(layout_generate_id(), size, true, reverse, h_align, v_align, spacing, padding, flags);
-}
-
-bool layout_vertical(i8 h_align, i8 v_align, v2 size, bool reverse, f32 spacing, v2 padding, u32 flags)
-{
-	if (spacing == -1.f) spacing = get_style().default_layout_spacing;
-	return layout_unknown(layout_generate_id(), size, false, reverse, h_align, v_align, spacing, padding, flags);
-}
-
-bool layout_line(i8 h_align, i8 v_align, bool reverse, f32 spacing)
-{
-	const Style& style = get_style();
-	if (spacing == -1.f) spacing = style.default_layout_spacing;
-	return layout_unknown(layout_generate_id(), {layout_width(), style.line_height()}, true, reverse, h_align, v_align, spacing);
-}
-
-ID layout_generate_id()
+ID box_generate_id()
 {
 	// Just some random number so you don't interfere with other simple ids
 	const i32 layout_starting_id = 472502; 
-	Layout& layout = get_layout();
-	layout.counter += 1;
-	return get_id(layout_starting_id + layout.counter);
+	Box* box = get_box();
+	box->counter += 1;
+	return get_id(layout_starting_id + box->counter);
 }
 
-Rect layout_next(v2 size)
+void Box::append_child(Box* box)
 {
-	return get_layout().allocate(size);
+	LGUI_LL_APPEND_END(box, prev, next, first_child, last_child);
+	box->parent = this;
+	++child_count;
 }
 
-f32 layout_width()
+void Box::begin()
 {
-	return get_layout().max_size.x;
 }
 
-f32 layout_height()
+void Box::end()
 {
-	return get_layout().max_size.y;
-}
-
-void set_next_layout_background(Color color_in[4], bool outline, Color color_outline[4], f32 outline_size)
-{
-	Context* context = get_context();
-	context->layout_next_draw_background = true;
-
-	context->layout_background_colors[0] = color_in[0];
-	context->layout_background_colors[1] = color_in[1];
-	context->layout_background_colors[2] = color_in[2];
-	context->layout_background_colors[3] = color_in[3];
-
-	context->layout_background_has_outline = outline;
-	if (outline)
+	try_calculate_size(true, false);
+	if (size_calculated && parent)
 	{
-		context->layout_background_outline_size = outline_size;
-		context->layout_background_colors[4] = color_outline[0];
-		context->layout_background_colors[5] = color_outline[1];
-		context->layout_background_colors[6] = color_outline[2];
-		context->layout_background_colors[7] = color_outline[3];
+		parent->add_used_size(calculated_size);
+	}
+	else if (!size_calculated)
+	{
+		// Append to unknown size list
+		Panel* panel = get_current_panel();
+		prev_unknown_size = panel->last_unknown_size;
+		panel->last_unknown_size = this;
 	}
 }
 
-void set_next_layout_background(Color color, Color outline_color, f32 outline_size)
+void Box::try_calculate_size(bool at_end, bool at_post)
 {
-	Color in[4] = {color, color, color, color};
-	Color out[4] = {outline_color, outline_color, outline_color, outline_color};
-	set_next_layout_background(
-		in,
-		true,
-		out,
-		outline_size
-	);
+	// Set to false on failure
+	size_calculated = true;
+
+	// Calculate usable size
+	v2 parent_size = {};
+	if (parent)
+	{
+		parent_size = parent->calculated_size - parent->padding * 2.f;
+	}
+
+	switch (size[0].type)
+	{
+	case SizeType_Px:
+	{
+		calculated_size.x = size[0].value;
+	} break;
+	case SizeType_Percent:
+	{
+		// At post size calculations you can just use the parent size, since all known sizes have been calculated
+		// The percentage size isn't going to stretch the parent anyway
+		if (parent && (parent->size_calculated || at_post))
+		{
+			calculated_size.x = parent_size.x * size[0].value;
+		}
+		else
+		{
+			size_calculated = false;
+		}
+	} break;
+	case SizeType_Fit:
+	{
+		if (at_end && known_size_child_count == child_count)
+		{
+			calculated_size.x = used_size.x * size[0].value + padding.x * 2.f;
+		}
+		else
+		{
+			size_calculated = false;
+		}
+	} break;
+	}
+
+	switch (size[1].type)
+	{
+	case SizeType_Px:
+	{
+		calculated_size.y = size[1].value;
+	} break;
+	case SizeType_Percent:
+	{
+		if (parent && (parent->size_calculated || at_post))
+		{
+			calculated_size.y = parent_size.y * size[1].value;
+		}
+		else
+		{
+			size_calculated = false;
+		}
+	} break;
+	case SizeType_Fit:
+	{
+		if (at_end && known_size_child_count == child_count)
+		{
+			calculated_size.y = used_size.y * size[1].value + padding.y * 2.f;
+		}
+		else
+		{
+			size_calculated = false;
+		}
+	} break;
+	}
 }
 
-void set_next_layout_background(Color color)
+void Box::add_used_size(v2 pixel_size)
 {
-	Color in[4] = {color, color, color, color};
-	Color out[4] = {};
-	set_next_layout_background(
-		in,
-		false,
-		out,
-		0.f
-	);
+	++known_size_child_count;
+
+	if (flags & BoxFlag_IsHorizontal)
+	{
+		used_size.x += pixel_size.x;
+		used_size.y = LGUI_MAX(used_size.y, pixel_size.y);
+	}
+	else
+	{
+		used_size.y += pixel_size.y;
+		used_size.x = LGUI_MAX(used_size.x, pixel_size.x);
+	}
 }
 
+void Box::post_calculate_size()
+{
+	try_calculate_size(true, true);
+	LGUI_ASSERT(size_calculated, "Failed to calculate size on re-calculation, probably an issue in the order of the unknown size list");
+	if (parent)
+	{
+		parent->add_used_size(calculated_size);
+	}
+}
+
+Box* _allocate_box(ID id)
+{
+	Context* context = get_context();
+	Panel* panel = get_current_panel();
+	
+	LGUI_ASSERT(panel->box_lookup[0] && panel->box_lookup[1], "Box lookup arrays not initialized");
+	Box** lookup_new = panel->box_lookup[context->current_frame % 2];
+	Box** lookup_old = panel->box_lookup[(context->current_frame - 1) % 2];
+
+	Box* new_box = context->temp_arena->allocate_one<Box>();
+
+	// Find box from previous frame
+	Box* old_box = nullptr;
+	for (Box* it = lookup_old[id % BOX_TABLE_SIZE]; it; it = it->hash_next)
+	//for (Box* it = lookup_old[id & (BOX_TABLE_SIZE - 1)]; it; it = it->hash_next)
+	{
+		if (it->id == id)
+		{
+			old_box = it;
+			break;
+		}
+	}
+
+	if (old_box)
+	{
+		*new_box = *old_box;
+		new_box->next = nullptr;
+		new_box->prev = nullptr;
+		new_box->parent = nullptr;
+		new_box->first_child = nullptr;
+		new_box->last_child = nullptr;
+		new_box->child_count = 0;
+		new_box->known_size_child_count = 0;
+		new_box->used_size = {};
+		new_box->counter = 0;
+		// Keep calculated position/size so the user can reuse it
+	}
+	else
+	{
+		// All other fields are already null
+		new_box->id = id;
+		new_box->h_align = -1;
+		new_box->v_align = -1;
+	}
+
+	// Insert box in new frame
+	u32 index = id % BOX_TABLE_SIZE;
+	new_box->hash_next = lookup_new[index];
+	lookup_new[index] = new_box;
+
+	return new_box;
+}
+
+void _init_box(Box* box, Size2 size, u32 flags)
+{
+	box->size[0] = size.x;
+	box->size[1] = size.y;
+	
+	box->flags = flags;
+}
+
+Box* make_box(ID id, Size2 size, u32 flags)
+{
+	Box* box = _allocate_box(id);
+
+	_init_box(box, size, flags);
+	
+	Box* parent = get_box();
+	if (parent)
+	{
+		parent->append_child(box);
+		box->begin();
+		box->end();
+	}
+
+	return box;
+}
+
+Box* make_box(const char* name_id, Size2 size, u32 flags)
+{
+	return make_box(get_id(name_id), size, flags);
+}
+
+void push_box(Box* box)
+{
+	Context* context = get_context();
+
+	push_id_raw(box->id);
+	
+	if (context->box_stack_top > 0)
+	{
+		Box* parent = context->box_stack[context->box_stack_top - 1];
+		parent->append_child(box);
+		box->begin();
+
+		// For child widgets that want to calculate their size immediately
+		box->try_calculate_size(false, false);
+	}
+
+	LGUI_ASSERT(context->box_stack_top < BOX_STACK_SIZE, "Box stack out of bounds");
+	context->box_stack[context->box_stack_top] = box;
+	++context->box_stack_top;
+}
+
+Box* push_box(ID id, Size2 size, u32 flags)
+{
+	Box* box = _allocate_box(id);
+	_init_box(box, size, flags);
+
+	push_box(box);
+
+	return box;
+}
+
+Box* push_box(const char* name_id, Size2 size, u32 flags)
+{
+	return push_box(get_id(name_id), size, flags);
+}
+
+Box* pop_box()
+{
+	Context* context = get_context();
+
+	LGUI_ASSERT(context->box_stack_top > 0, "Box stack is already empty");
+	Box* pop = context->box_stack[context->box_stack_top - 1];
+	--context->box_stack_top;
+	
+	pop->end();
+
+	pop_id();
+
+	return pop;
+}
+
+Box* get_box()
+{
+	Context* context = get_context();
+	return context->box_stack_top > 0 ? context->box_stack[context->box_stack_top - 1] : nullptr;
+}
+
+Box* layout_horizontal(i8 h_align, i8 v_align, Size2 size)
+{
+	//Box* push = push_box(box_generate_id(), size, BoxFlag_IsHorizontal | BoxFlag_DrawRectangle);
+	Box* push = push_box(box_generate_id(), size, BoxFlag_IsHorizontal);
+	push->h_align = h_align;
+	push->v_align = v_align;
+	push->padding = {10.f, 10.f};
+
+	// Debug
+	push->color = {1, 0, 0, 0.4f};
+
+	return push;
+}
+
+Box* layout_vertical(i8 h_align, i8 v_align, Size2 size)
+{
+	//Box* push = push_box(box_generate_id(), size, BoxFlag_DrawRectangle);
+	Box* push = push_box(box_generate_id(), size, 0);
+	push->h_align = h_align;
+	push->v_align = v_align;
+
+	// Debug
+	push->color = {0, 0, 1, 0.4f};
+
+	return push;
+}
+
+void layout_end()
+{
+	pop_box();
+}
+
+static void _draw_box(Painter& painter, Box* box, const Rect* clip_rect)
+{
+	// Position must already be known here
+
+	Rect pass_clip_rect;
+	//Rect rect = box->prev_rect().pad(box->padding);
+	// Manual inline
+	Rect rect = {{box->calculated_position + box->padding}, {box->calculated_position + box->calculated_size - box->padding}};
+
+	//debug_rect(rect, "lol", {1, 1, 0, 1});
+
+	if (box->flags & BoxFlag_DrawRectangle)
+	{
+		painter.draw_rectangle(box->calculated_position, box->calculated_size, box->color);
+	}
+	if (box->flags & BoxFlag_DrawText)
+	{
+		if (clip_rect->overlap(rect))
+		{
+			LGUI_ASSERT(box->font, "Box wants to render text but has not font");
+			v2 text_size = {box->font->text_width(box->text, box->text_length, 0.f), box->font->height};
+			Rect r = rect.align_size(text_size, box->h_align, box->v_align);
+			painter.draw_text(box->font, box->text, box->text_length, r.top_left, 0.f, box->text_color);
+		}
+	}
+	if (box->flags & BoxFlag_Clip)
+	{
+		painter.push_clip_rect(rect);
+		pass_clip_rect = painter.get_clip_rect();
+		clip_rect = &pass_clip_rect;
+	}
+
+	// Render children
+	if (box->first_child)
+	{
+		Rect children = rect.align_size(box->used_size, box->h_align, box->v_align);
+		v2 pos = children.top_left;
+		f32 w = children.width();
+		f32 h = children.height();
+		bool horizontal = box->flags & BoxFlag_IsHorizontal;
+
+		if (horizontal)
+		{
+			for (Box* it = box->first_child; it; it = it->next)
+			{
+				// Calculate child position
+				it->calculated_position = pos;
+
+				if (box->v_align == 0)
+				{
+					it->calculated_position.y += h / 2.f - it->calculated_size.y / 2.f;
+				}
+				else if (box->v_align == 1)
+				{
+					it->calculated_position.y += h - it->calculated_size.y;
+				}
+
+				_draw_box(painter, it, clip_rect);
+
+				pos.x += it->calculated_size.x;
+			}
+		}
+		else
+		{
+			for (Box* it = box->first_child; it; it = it->next)
+			{
+				// Calculate child position
+				it->calculated_position = pos;
+
+				if (box->h_align == 0)
+				{
+					it->calculated_position.x += w / 2.f - it->calculated_size.x / 2.f;
+				}
+				else if (box->h_align == 1)
+				{
+					it->calculated_position.x += w - it->calculated_size.x;
+				}
+
+				_draw_box(painter, it, clip_rect);
+
+				pos.y += it->calculated_size.y;
+			}
+		}
+	}
+
+	if (box->flags & BoxFlag_Clip)
+	{
+		painter.pop_clip_rect();
+	}
+}
+
+static void _draw_boxes(Painter& painter, Box* root, v2 start_pos)
+{
+	root->calculated_position = start_pos;
+	Rect clip_rect = painter.get_clip_rect();
+	_draw_box(painter, root, &clip_rect);
+}
 
 void debug_menu()
 {
@@ -2118,6 +2016,7 @@ void debug_menu()
 		const int buffer_size = 64;
 		char buffer[buffer_size]{};
 
+		/*
 		snprintf(buffer, buffer_size, "hover_id = %d", context->hover_id);
 		text(buffer);
 		snprintf(buffer, buffer_size, "active_id = %d", context->active_id);
@@ -2128,7 +2027,10 @@ void debug_menu()
 		text(buffer);
 
 		separator();
+		*/
 
+
+		/*
 #ifdef LGUI_DEBUG_INFO
 		LGUI_LINE_LAYOUT(-1)
 		{
@@ -2142,6 +2044,7 @@ void debug_menu()
 			text("Show layout allocations");
 		}
 #endif
+	*/
 
 		end_panel();
 	}

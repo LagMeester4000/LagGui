@@ -23,6 +23,64 @@ static Color lerp_color(Color c1, Color c2, f32 t)
 InputResult button(const char* name)
 {
 	ID id = get_id(name);
+	//RetainedData* retained = get_retained_data(id);
+	const Style& style = get_style();
+
+	// Rect
+	Font* font = style.default_font;
+	f32 text_width = font->text_width(name, 0);
+	Box* box = make_box(name, px(text_width + 4, font->height), BoxFlag_DrawText | BoxFlag_DrawRectangle);
+	box->font = font;
+	box->text = name;
+	box->text_length = strlen(name);
+	box->h_align = 0;
+	box->v_align = 0;
+
+	InputResult input = handle_element_input(box->prev_rect(), id);
+	//retained->update_t_towards(input.hover, input.down);
+	//Color color = lerp_color(lerp_color(style.button_background, style.button_background_hover, retained->hover_t), style.button_background_down, retained->active_t);
+	Color color = style.button_background;
+
+	box->color = color;
+	box->text_color = {1, 1, 1, 1};
+
+	return input;
+}
+
+void spacer(f32 size)
+{
+	Box* box = get_box();
+	if (box->flags & BoxFlag_IsHorizontal)
+	{
+		make_box(box_generate_id(), px(size, 1.f), 0);
+	}
+	else
+	{
+		make_box(box_generate_id(), px(1.f, size), 0);
+	}
+}
+
+void text(const char* text)
+{
+	const Style& style = get_style();
+
+	// Rect
+	Font* font = style.default_font;
+	f32 text_width = font->text_width(text, 0);
+	Box* box = make_box(box_generate_id(), px(text_width, font->height), BoxFlag_DrawText);
+	box->font = font;
+	// TODO: push on temp arena
+	box->text = text;
+	box->text_length = strlen(text);
+	box->h_align = 0;
+	box->v_align = 0;
+	box->text_color = {1.f, 1.f, 1.f, 1.f};
+}
+
+/*
+InputResult button(const char* name)
+{
+	ID id = get_id(name);
 	RetainedData* retained = get_retained_data(id);
 	const Style& style = get_style();
 
@@ -669,8 +727,8 @@ void separator()
 
 void spacer(f32 size)
 {
-	Layout& layout = get_layout();
-	if (layout.flags & LayoutFlag_IsHorizontal)
+	Box& layout = get_layout();
+	if (layout.flags & BoxFlag_IsHorizontal)
 	{
 		layout.allocate({size, 1.f});
 	}
@@ -698,12 +756,12 @@ bool begin_fancy_collapse_header(const char* name)
 	if (open && retained->active_t >= 0.99f)
 	{
 		lgui::set_next_layout_background(style.window_title_background, style.window_outline, 2);
-		lgui::layout_vertical(-1, 1, {layout_width(), 0.f}, false, -1, pad, LayoutFlag_Clip | LayoutFlag_FixedH);
+		lgui::layout_vertical(-1, 1, {layout_width(), 0.f}, false, -1, pad, BoxFlag_Clip | BoxFlag_FixedH);
 	}
 	else if (retained->active_t > 0.001f)
 	{
 		lgui::set_next_layout_background(style.window_title_background, style.window_outline, 2);
-		lgui::layout_vertical(-1, 1, {layout_width(), retained->value_v2.y * retained->active_t}, false, -1.f, pad, LayoutFlag_Clip | LayoutFlag_FixedH | LayoutFlag_FixedV);
+		lgui::layout_vertical(-1, 1, {layout_width(), retained->value_v2.y * retained->active_t}, false, -1.f, pad, BoxFlag_Clip | BoxFlag_FixedH | BoxFlag_FixedV);
 	}
 	else
 	{
@@ -726,5 +784,6 @@ void end_fancy_collapse_header()
 	RetainedData* retained = get_retained_data(id);
 	retained->value_v2 = size;
 }
+*/
 
 }

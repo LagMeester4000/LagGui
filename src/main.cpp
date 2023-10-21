@@ -295,6 +295,47 @@ int main()
 		{
 			lgui::begin_frame(GetFrameTime());
 
+			
+			if (lgui::begin_panel("Box test", lgui::Rect::from_pos_size(lgui::v2{250, 250}, lgui::v2{450, 450}), 0))
+			{
+				LGUI_H_LAYOUT(-1, -1, {lgui::pc(1.f), lgui::fit()})
+				{
+					LGUI_V_LAYOUT(-1, -1)
+					{
+						if (lgui::button("button 1").clicked) { printf("Clicky!\n"); }
+						lgui::spacer(10);
+						if (lgui::button("button 2 23423423").clicked) { printf("Clicky!\n"); }
+						lgui::spacer(10);
+						if (lgui::button("button 3").clicked) { printf("Clicky!\n"); }
+					}
+
+					lgui::spacer(10);
+
+					LGUI_V_LAYOUT(-1, -1)
+					{
+						if (lgui::button("button 4").clicked) { printf("Clicky!\n"); }
+						lgui::spacer(10);
+						if (lgui::button("button 5").clicked) { printf("Clicky!\n"); }
+
+						for (int i = 0; i < 1000; ++i) // Heavy benchmark
+						//for (int i = 0; i < 100; ++i)
+						{
+							LGUI_H_LAYOUT(-1, -1)
+							{
+								lgui::text("Cool thingy:");
+								lgui::spacer(4.f);
+								if (lgui::button("button 4").clicked) { printf("Clicky!\n"); }
+							}
+						}
+					}
+
+				}
+
+				lgui::spacer(10);
+				lgui::end_panel();
+			}
+
+#if 0
 			/*
 			// Stress test
 			for (int i = 0; i < 30; ++i)
@@ -308,12 +349,12 @@ int main()
 			}
 			*/
 
-			if (lgui::begin_panel("Layout test", lgui::Rect::from_pos_size(lgui::v2{250, 250}, lgui::v2{450, 450}), 0))
+			if (lgui::begin_panel("Box test", lgui::Rect::from_pos_size(lgui::v2{250, 250}, lgui::v2{450, 450}), 0))
 			{
 				if (lgui::layout_line(-1))
 				{
-					lgui::checkbox("Layout reverse", &test_layout_reverse);
-					lgui::text("Layout reverse");
+					lgui::checkbox("Box reverse", &test_layout_reverse);
+					lgui::text("Box reverse");
 					lgui::end_layout();
 				}
 				if (lgui::begin_fancy_collapse_header("hello sir"))
@@ -334,14 +375,14 @@ int main()
 				}
 				if (lgui::layout_line(-1))
 				{
-					lgui::checkbox("Layout horizontal", &test_layout_horizontal);
-					lgui::text("Layout horizontal");
+					lgui::checkbox("Box horizontal", &test_layout_horizontal);
+					lgui::text("Box horizontal");
 					lgui::end_layout();
 				}
 				if (lgui::layout_line(-1))
 				{
 					lgui::checkbox("layout enable", &test_layout_enable);
-					lgui::text("Layout enable");
+					lgui::text("Box enable");
 					lgui::end_layout();
 				}
 				if (lgui::layout_line(-1))
@@ -357,7 +398,7 @@ int main()
 
 					const int buffer_size = 32;
 					char buffer[buffer_size]{};
-					snprintf(buffer, buffer_size, "Layout count (%d)", test_layout_count);
+					snprintf(buffer, buffer_size, "Box count (%d)", test_layout_count);
 					lgui::text(buffer);
 
 					lgui::end_layout();
@@ -365,10 +406,10 @@ int main()
 
 				if (lgui::layout_line(-1))
 				{
-					lgui::text("Layout h_align: ");
-					lgui::radio_button("Layout h_align -1", -1, &test_layout_h_align);
-					lgui::radio_button("Layout h_align 0", 0, &test_layout_h_align);
-					lgui::radio_button("Layout h_align 1", 1, &test_layout_h_align);
+					lgui::text("Box h_align: ");
+					lgui::radio_button("Box h_align -1", -1, &test_layout_h_align);
+					lgui::radio_button("Box h_align 0", 0, &test_layout_h_align);
+					lgui::radio_button("Box h_align 1", 1, &test_layout_h_align);
 
 					/*
 					{
@@ -383,10 +424,10 @@ int main()
 				}
 				if (lgui::layout_line(-1))
 				{
-					lgui::text("Layout v_align: ");
-					lgui::radio_button("Layout v_align -1", -1, &test_layout_v_align);
-					lgui::radio_button("Layout v_align 0", 0, &test_layout_v_align);
-					lgui::radio_button("Layout v_align 1", 1, &test_layout_v_align);
+					lgui::text("Box v_align: ");
+					lgui::radio_button("Box v_align -1", -1, &test_layout_v_align);
+					lgui::radio_button("Box v_align 0", 0, &test_layout_v_align);
+					lgui::radio_button("Box v_align 1", 1, &test_layout_v_align);
 					lgui::end_layout();
 				}
 
@@ -397,7 +438,7 @@ int main()
 					lgui::set_next_layout_background(GREY(0.4f), GREY(0.6f), 2.f);
 					//if (lgui::layout_unknown(10, { lgui::layout_width(), 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f, {8.f, 8.f}))
 					//if (lgui::layout_unknown(10, { 0.f, 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f, {8.f, 8.f}))
-					if (lgui::layout_unknown(10, { lgui::layout_width(), 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f, { 8.f, 8.f }, lgui::LayoutFlag_FixedH))
+					if (lgui::layout_unknown(10, { lgui::layout_width(), 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f, { 8.f, 8.f }, lgui::BoxFlag_FixedH))
 					{
 						if (lgui::button("Button1").clicked)
 						{
@@ -509,6 +550,7 @@ int main()
 			//area_test(area);
 
 			//ast_update();
+#endif
 
 			lgui::end_frame();
 
