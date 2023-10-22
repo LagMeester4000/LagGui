@@ -152,6 +152,8 @@ void Painter::pop_clip_rect()
 	_push_command();
 
 	--clip_rect_stack_top;
+
+	current_command->clip_rect = get_clip_rect();
 }
 
 struct ColorU32 {

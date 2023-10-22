@@ -272,6 +272,14 @@ inline const char* copy_string(Arena* arena, const char* str)
 	return ret;
 }
 
+inline const char* copy_string(Arena* arena, const char* str, usize len)
+{
+	char* ret = (char*)arena->allocate_raw(len + 1);
+	memcpy((void*)ret, str, len);
+	ret[len] = 0;
+	return ret;
+}
+
 inline const char* copy_string_to_buffer(char* buffer, usize buffer_length, const char* str)
 {
 	usize str_length = strlen(str);

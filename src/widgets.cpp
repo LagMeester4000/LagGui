@@ -92,7 +92,7 @@ void min_size(f32 size)
 	}
 }
 
-void text(const char* text)
+void text(const char* text, bool static_string)
 {
 	const Style& style = get_style();
 
@@ -101,12 +101,31 @@ void text(const char* text)
 	f32 text_width = font->text_width(text, 0);
 	Box* box = make_box(box_generate_id(), px(text_width, font->height), BoxFlag_DrawText);
 	box->font = font;
-	// TODO: push on temp arena
-	box->text = text;
-	box->text_length = strlen(text);
+
+	usize len = strlen(text);
+	box->text_length = len;
+	if (static_string)
+	{
+		box->text = text;
+	}
+	else
+	{
+		box->text = copy_string(get_context()->temp_arena, text, len);
+	}
+
 	box->h_align = 0;
 	box->v_align = 0;
 	box->text_color = {1.f, 1.f, 1.f, 1.f};
+}
+
+static v2 _wrapped_text_size(const char* text, usize len, f32 width, Font* font)
+{
+
+}
+
+void text_wrapped(const char* text, Size width, bool static_string)
+{
+
 }
 
 InputResult radio_button(const char* name, int option, int* selected)

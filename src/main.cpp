@@ -231,7 +231,7 @@ int main()
 
 	InitWindow(screenWidth, screenHeight, "LGUI Example");
 	SetWindowState(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
-	SetTargetFPS(60);
+	//SetTargetFPS(60);
 
 	lgui::Context* context = lgui::init();
 	context->app_window_size = {(f32)screenWidth, (f32)screenHeight};
@@ -300,7 +300,7 @@ int main()
 		rlDisableBackfaceCulling();
 
 		// Enable for frame by frame
-		if (IsKeyPressed(KEY_ENTER) || IsKeyDown(KEY_RIGHT_SHIFT))
+		//if (IsKeyPressed(KEY_ENTER) || IsKeyDown(KEY_RIGHT_SHIFT))
 		{
 			lgui::begin_frame(GetFrameTime());
 			
@@ -331,13 +331,13 @@ int main()
 							}
 							lgui::spacer(2);
 
-							for (int i = 0; i < 2; ++i)
+							for (int i = 0; i < 4; ++i)
 							{
 								LGUI_H_LAYOUT(-1, 0)
 								{
 									lgui::radio_button("the option3", 3, &test_radio_value);
 									lgui::spacer(3.f);
-									lgui::text("Option 3");
+									lgui::text("Option 3", true);
 								}
 							}
 
@@ -352,6 +352,7 @@ int main()
 							lgui::spacer(3.f);
 							lgui::text("Check this out");
 						}
+						lgui::text("hello");
 					}
 
 					//lgui::spacer(10);

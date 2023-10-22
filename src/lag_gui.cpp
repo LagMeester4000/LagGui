@@ -2085,6 +2085,8 @@ static void _draw_box(Painter& painter, Box* box, const Rect* clip_rect)
 	{
 		painter.pop_clip_rect();
 	}
+
+	//debug_rect(rect, "lol", {1, 1, 0, 1});
 }
 
 static void _draw_boxes(Painter& painter, Box* root, v2 start_pos)
