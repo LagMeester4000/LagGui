@@ -224,6 +224,101 @@ void area_test(lgui::Context* context, NoteArea& area)
 extern void ast_init();
 extern void ast_update(lgui::Context* context);
 
+struct LayoutTest {
+	int h_align;
+	int v_align;
+	bool horizontal;
+	bool enable;
+	int layout_count;
+};
+
+void layout_test(LayoutTest& test)
+{
+	if (lgui::begin_panel("Layout test 2", Rect::from_pos_size({}, { 400, 400 }), 0))
+	{
+		LGUI_H_LAYOUT(-1, 0)
+		{
+			lgui::text("Horizontal alignment: ");
+			lgui::radio_button("align1", -1, &test.h_align);
+			lgui::radio_button("align2", 0, &test.h_align);
+			lgui::radio_button("align3", 1, &test.h_align);
+		}
+
+		LGUI_H_LAYOUT(-1, 0)
+		{
+			lgui::text("Vertical alignment: ");
+			lgui::radio_button("valign1", -1, &test.v_align);
+			lgui::radio_button("valign2", 0, &test.v_align);
+			lgui::radio_button("valign3", 1, &test.v_align);
+		}
+
+		LGUI_H_LAYOUT(-1, 0)
+		{
+			lgui::checkbox("horizontal", &test.horizontal);
+			lgui::text("Horizontal");
+		}
+
+		LGUI_H_LAYOUT(-1, 0)
+		{
+			lgui::checkbox("enable", &test.enable);
+			lgui::text("Enable");
+		}
+
+		LGUI_H_LAYOUT(-1, 0)
+		{
+			if (lgui::button("-").clicked)
+			{
+				test.layout_count -= 1;
+				test.layout_count = LGUI_MAX(test.layout_count, 0);
+			}
+			lgui::spacer(2.f);
+			if (lgui::button("+").clicked)
+			{
+				test.layout_count += 1;
+			}
+			lgui::spacer(2.f);
+			lgui::text("Count");
+		}
+
+		lgui::separator();
+
+		bool empty_bool{};
+		int emtpy_int{};
+
+		if (test.enable)
+		{
+			//lgui::layout_vertical(-1, -1);
+
+			if (test.horizontal)
+			{
+				lgui::layout_horizontal(test.h_align, test.v_align, {lgui::pc(1.f), lgui::px(200.f)});
+			}
+			else
+			{
+				lgui::layout_vertical(test.h_align, test.v_align, {lgui::pc(1.f), lgui::px(200.f)});
+			}
+
+			{
+				lgui::button("some text");
+				lgui::radio_button("radio", 0, &emtpy_int);
+				lgui::checkbox("check", &empty_bool);
+
+				//lgui::Box* box = lgui::make_box("boox", {lgui::pc(1.f), lgui::px(20.f)}, 0);
+				//box->set_rectangle({ 1, 0, 0, 1 });
+			}
+
+			lgui::layout_end();
+
+
+			//lgui::text("lalalalalalalal");
+
+			//lgui::layout_end();
+		}
+
+		lgui::end_panel();
+	}
+}
+
 int main()
 {
 	const int screenWidth = 800;
@@ -283,6 +378,8 @@ int main()
 	NoteArea area{};
 	area.scale = {1, 1};
 
+	LayoutTest layout_t{};
+
 	ast_init();
 
 	while (!WindowShouldClose())
@@ -303,6 +400,8 @@ int main()
 		//if (IsKeyPressed(KEY_ENTER) || IsKeyDown(KEY_RIGHT_SHIFT))
 		{
 			lgui::begin_frame(GetFrameTime());
+
+			layout_test(layout_t);
 			
 			if (lgui::begin_panel("Box test", lgui::Rect::from_pos_size(lgui::v2{250, 250}, lgui::v2{450, 450}), 0))
 			{
@@ -343,6 +442,21 @@ int main()
 
 							lgui::spacer(2);
 							lgui::end_fancy_collapse_header();
+						}
+
+						if (lgui::begin_tree_node("root"))
+						{
+							if (lgui::begin_tree_node("Player"))
+							{
+								lgui::text("hello there");
+								lgui::end_tree_node();
+							}
+							if (lgui::begin_tree_node("Enemy"))
+							{
+								lgui::text("mememe");
+								lgui::end_tree_node();
+							}
+							lgui::end_tree_node();
 						}
 
 						lgui::spacer(3.f);

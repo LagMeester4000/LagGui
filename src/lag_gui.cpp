@@ -1151,8 +1151,12 @@ bool begin_panel(const char* name, Rect rect, PanelFlag flags)
 		panel->get_painter()._start_painter();
 	}
 
-	panel->last_unknown_size = nullptr;
-	panel->first_unknown_size = nullptr;
+	panel->first_unknown_fit[0] = nullptr;
+	panel->first_unknown_fit[1] = nullptr;
+	panel->last_unknown_fit[0] = nullptr;
+	panel->last_unknown_fit[1] = nullptr;
+	panel->last_unknown_pc[0] = nullptr;
+	panel->last_unknown_pc[1] = nullptr;
 	panel->flags = flags;
 
 	if (panel->frame_last_updated == 0)
@@ -1192,7 +1196,7 @@ bool begin_panel(const char* name, Rect rect, PanelFlag flags)
 	window_whole.bottom_right.y = lerp(window_whole.top_left.y + line_height + 2, window_whole.bottom_right.y, panel->open_anim);
 	Rect window_pad = window_whole.pad(1);
 
-	bool has_title_bar = !panel->is_docked();
+	bool has_title_bar = !panel->is_docked() && (flags & PanelFlag_TitleBar);
 	Rect window_title_bar{};
 	if (has_title_bar)
 	{
@@ -1310,9 +1314,19 @@ void end_panel()
 	pop_box();
 
 	// Calculate missing box sizes
-	for (Box* it = panel->first_unknown_size; it; it = it->next_unknown_size)
+	for (int i = 0; i < 2; ++i)
 	{
-		it->post_calculate_size();
+		for (Box* it = panel->last_unknown_pc[i]; it; it = it->next_unknown_size[i])
+		{
+			it->post_calculate_percent(i);
+		}
+	}
+	for (int i = 0; i < 2; ++i)
+	{
+		for (Box* it = panel->first_unknown_fit[i]; it; it = it->next_unknown_size[i])
+		{
+			it->post_calculate_fit(i);
+		}
 	}
 
 	// Draw boxes
@@ -1623,128 +1637,156 @@ void Box::begin()
 
 void Box::end()
 {
-	try_calculate_size(true, false);
-	if (size_calculated && parent)
+	end_calculate_size(0);
+	end_calculate_size(1);
+}
+
+void Box::end_calculate_size(int index)
+{
+	LGUI_ASSERT(is_size_calculated[index] == false, "Size already calculated");
+
+	f32& calc_size = index ? calculated_size.y : calculated_size.x;
+
+	is_size_calculated[index] = true;
+
+	switch (size[index].type)
 	{
-		parent->add_used_size(calculated_size);
-	}
-	else if (!size_calculated)
+	case SizeType_Px:
 	{
-		// Append to unknown size list
+		calc_size = size[index].value;
+		if (parent)
+		{
+			parent->add_used_size(index, calc_size);
+			parent->add_static_size(index, calc_size);
+		}
+	} break;
+	case SizeType_Percent:
+	{
+		// Impossible, add to list
 		Panel* panel = get_current_panel();
-		if (!panel->first_unknown_size)
-		{
-			panel->first_unknown_size = this;
-			panel->last_unknown_size = this;
-		}
-		else
-		{
-			LGUI_ASSERT(panel->last_unknown_size, "If first exists, this must exist");
-			panel->last_unknown_size->next_unknown_size = this;
-			panel->last_unknown_size = this;
-		}
-	}
-}
+		next_unknown_size[index] = panel->last_unknown_pc[index];
+		panel->last_unknown_pc[index] = this;
 
-void Box::try_calculate_size(bool at_end, bool at_post)
-{
-	// Set to false on failure
-	size_calculated = true;
-
-	// Calculate usable size
-	v2 parent_size = {};
-	if (parent)
-	{
-		parent_size = parent->calculated_size - parent->padding * 2.f;
-	}
-
-	switch (size[0].type)
-	{
-	case SizeType_Px:
-	{
-		calculated_size.x = size[0].value;
-	} break;
-	case SizeType_Percent:
-	{
-		// At post size calculations you can just use the parent size, since all known sizes have been calculated
-		// The percentage size isn't going to stretch the parent anyway
-		if (parent && (parent->size_calculated || at_post))
-		{
-			calculated_size.x = parent_size.x * size[0].value;
-		}
-		else
-		{
-			size_calculated = false;
-		}
+		is_size_calculated[index] = false;
 	} break;
 	case SizeType_Fit:
 	{
-		if (at_end && known_size_child_count == child_count)
+		if (known_size_child_count[index] == child_count)
 		{
-			calculated_size.x = used_size.x * size[0].value + padding.x * 2.f;
+			calc_size = index ? (used_size.y + padding.y * 2.f) : (used_size.x + padding.x * 2.f);
+			if (parent)
+			{
+				parent->add_used_size(index, calc_size);
+				parent->add_static_size(index, calc_size);
+			}
 		}
 		else
 		{
-			size_calculated = false;
-		}
-	} break;
-	}
+			parent->add_static_size(index, index ? (static_size.y + padding.y * 2.f) : (static_size.x + padding.x * 2.f));
 
-	switch (size[1].type)
-	{
-	case SizeType_Px:
-	{
-		calculated_size.y = size[1].value;
-	} break;
-	case SizeType_Percent:
-	{
-		if (parent && (parent->size_calculated || at_post))
-		{
-			calculated_size.y = parent_size.y * size[1].value;
-		}
-		else
-		{
-			size_calculated = false;
-		}
-	} break;
-	case SizeType_Fit:
-	{
-		if (at_end && known_size_child_count == child_count)
-		{
-			calculated_size.y = used_size.y * size[1].value + padding.y * 2.f;
-		}
-		else
-		{
-			size_calculated = false;
+			Panel* panel = get_current_panel();
+			if (panel->last_unknown_fit[index])
+			{
+				panel->last_unknown_fit[index]->next_unknown_size[index] = this;
+				panel->last_unknown_fit[index] = this;
+			}
+			else
+			{
+				panel->first_unknown_fit[index] = this;
+				panel->last_unknown_fit[index] = this;
+			}
+
+			is_size_calculated[index] = false;
 		}
 	} break;
 	}
 }
 
-void Box::add_used_size(v2 pixel_size)
+void Box::add_used_size(int index, f32 pixel_size)
 {
-	++known_size_child_count;
+	known_size_child_count[index] += 1;
 
-	if (flags & BoxFlag_IsHorizontal)
+	if (index == 0)
 	{
-		used_size.x += pixel_size.x;
-		used_size.y = LGUI_MAX(used_size.y, pixel_size.y);
+		if (flags & BoxFlag_IsHorizontal)
+		{
+			used_size.x += pixel_size;
+		}
+		else
+		{
+			used_size.x = LGUI_MAX(used_size.x, pixel_size);
+		}
+	}
+	else // (index == 1)
+	{
+		if (flags & BoxFlag_IsHorizontal)
+		{
+			used_size.y = LGUI_MAX(used_size.y, pixel_size);
+		}
+		else
+		{
+			used_size.y += pixel_size;
+		}
+	}
+}
+
+void Box::add_static_size(int index, f32 pixel_size)
+{
+	if (index == 0)
+	{
+		if (flags & BoxFlag_IsHorizontal)
+		{
+			static_size.x += pixel_size;
+		}
+		else
+		{
+			static_size.x = LGUI_MAX(static_size.x, pixel_size);
+		}
+	}
+	else // (index == 1)
+	{
+		if (flags & BoxFlag_IsHorizontal)
+		{
+			static_size.y = LGUI_MAX(static_size.y, pixel_size);
+		}
+		else
+		{
+			static_size.y += pixel_size;
+		}
+	}
+}
+
+void Box::post_calculate_percent(int index)
+{
+	LGUI_ASSERT(size[index].type == SizeType_Percent, "Box in percent calculation list, but is not percent type");
+	LGUI_ASSERT(parent, "Percentage size requires parent");
+
+	f32& calc_size = index ? calculated_size.y : calculated_size.x;
+
+	if (parent->size[index].type == SizeType_Fit)
+	{
+		calc_size = (index ? parent->static_size.y : parent->static_size.x) * size[index].value;
 	}
 	else
 	{
-		used_size.y += pixel_size.y;
-		used_size.x = LGUI_MAX(used_size.x, pixel_size.x);
+		calc_size = (index ? 
+			(parent->calculated_size.y - parent->padding.y * 2.f) : 
+			(parent->calculated_size.x - parent->padding.x * 2.f)) 
+			* size[index].value;
 	}
+
+	parent->add_used_size(index, calc_size);
 }
 
-void Box::post_calculate_size()
+void Box::post_calculate_fit(int index)
 {
-	try_calculate_size(true, true);
-	LGUI_ASSERT(size_calculated, "Failed to calculate size on re-calculation, probably an issue in the order of the unknown size list");
-	if (parent)
-	{
-		parent->add_used_size(calculated_size);
-	}
+	LGUI_ASSERT(size[index].type == SizeType_Fit, "Box in fit calculation list, but is not fit type");
+	LGUI_ASSERT(known_size_child_count[index] == child_count, "At this point all children must have been calculated");
+
+	f32& calc_size = index ? calculated_size.y : calculated_size.x;
+	calc_size = index ? (used_size.y + padding.y * 2.f) : (used_size.x + padding.x * 2.f);
+
+	if (parent) parent->add_used_size(index, calc_size);
 }
 
 Box* _allocate_box(ID id)
@@ -1779,10 +1821,14 @@ Box* _allocate_box(ID id)
 		new_box->first_child = nullptr;
 		new_box->last_child = nullptr;
 		new_box->child_count = 0;
-		new_box->known_size_child_count = 0;
+		new_box->known_size_child_count[0] = 0;
+		new_box->known_size_child_count[1] = 0;
 		new_box->prev_used_size = new_box->used_size;
 		new_box->used_size = {};
+		new_box->static_size = {};
 		new_box->counter = 0;
+		new_box->is_size_calculated[0] = false;
+		new_box->is_size_calculated[1] = false;
 		// Keep calculated position/size so the user can reuse it
 	}
 	else
@@ -1842,10 +1888,6 @@ void push_box(Box* box)
 		Box* parent = context->box_stack[context->box_stack_top - 1];
 		parent->append_child(box);
 		box->begin();
-
-		// For child widgets that want to calculate their size immediately
-		// TODO: Do we though???
-		box->try_calculate_size(false, false);
 	}
 
 	LGUI_ASSERT(context->box_stack_top < BOX_STACK_SIZE, "Box stack out of bounds");
@@ -1974,6 +2016,8 @@ static void _draw_box(Painter& painter, Box* box, const Rect* clip_rect)
 
 	// Optimization avoiding get_clip_rect
 	Rect pass_clip_rect;
+	const Rect* clip_old;
+
 	//Rect rect = box->prev_rect().pad(box->padding);
 	// Manual inline
 	Rect rect = {{box->calculated_position + box->padding}, {box->calculated_position + box->calculated_size - box->padding}};
@@ -2025,7 +2069,10 @@ static void _draw_box(Painter& painter, Box* box, const Rect* clip_rect)
 	{
 		painter.push_clip_rect(rect);
 		pass_clip_rect = painter.get_clip_rect();
+		clip_old = clip_rect;
 		clip_rect = &pass_clip_rect;
+
+		//debug_rect(*clip_rect, "clip", { 1, 0, 0, 1 });
 	}
 
 	// Render children
@@ -2084,6 +2131,7 @@ static void _draw_box(Painter& painter, Box* box, const Rect* clip_rect)
 	if (box->flags & BoxFlag_Clip)
 	{
 		painter.pop_clip_rect();
+		clip_rect = clip_old;
 	}
 
 	//debug_rect(rect, "lol", {1, 1, 0, 1});

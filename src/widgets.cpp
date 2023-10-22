@@ -151,7 +151,7 @@ InputResult radio_button(const char* name, int option, int* selected)
 	Color color = lerp_color(style.radio_button_background, style.radio_button_background_hover, retained->hover_t);
 	box->set_circle(color, style.radio_button_outline, style.radio_button_outline_size);
 
-	if (*selected)
+	if (retained->active_t > 0.f)
 	{
 		// Second circle
 		f32 inside_size = size * lerp(0.2f, 0.6f, retained->active_t);
@@ -189,7 +189,7 @@ InputResult checkbox(const char* name, bool* value)
 	Color color = lerp_color(style.radio_button_background, style.radio_button_background_hover, retained->hover_t);
 	box->set_rectangle(color, style.radio_button_outline, style.radio_button_outline_size);
 
-	if (*value)
+	if (retained->active_t > 0.f)
 	{
 		// Second circle
 		f32 inside_size = size * lerp(0.2f, 0.6f, retained->active_t);
@@ -274,6 +274,80 @@ bool begin_fancy_collapse_header(const char* name)
 
 void end_fancy_collapse_header()
 {
+	layout_end();
+	layout_end();
+	pop_id();
+}
+
+bool begin_tree_node(const char* name)
+{
+	ID id = get_id(name);
+	push_id_raw(id);
+	RetainedData* retained = get_retained_data(id);
+	const Style& style = get_style();
+
+	Font* font = style.default_font;
+
+	Box* vertical = layout_vertical(-1, -1, {fit(), fit()});
+	min_size(100.f);
+
+	// Header
+	{
+		Box* header = layout_horizontal(-1, 0, {fit(), px(font->height + 2.f)});
+
+		if (handle_element_input(header->prev_rect(), header->id).clicked)
+		{
+			retained->open = !retained->open;
+		}
+		retained->update_t_towards(false, retained->open, 20.f);
+
+		spacer(3.f);
+		_open_triangle({px(font->height - 4.f, font->height - 4.f)}, style.button_text, retained->active_t * 90.f);
+		spacer(3.f);
+		text(name);
+
+		layout_end();
+	}
+
+	v2 padding = {2.f, 2.f};
+	f32 tab = 20.f;
+
+	bool ret = true;
+	if (retained->open && retained->active_t >= 0.99f)
+	{
+		{
+			layout_horizontal(-1, 1, {fit(), fit()});
+			spacer(tab);
+		}
+
+		Box* inner = layout_vertical(-1, 1, {fit(), fit()});
+		inner->padding = padding;
+	}
+	else if (retained->active_t > 0.001f)
+	{
+		{
+			layout_horizontal(-1, 1, {fit(), fit()});
+			spacer(tab);
+		}
+
+		Box* inner = layout_vertical(-1, 1, {fit(), px(100)});
+		inner->flags |= BoxFlag_Clip;
+		inner->size[1] = px((inner->prev_used_size.y + padding.y * 2.f) * retained->active_t);
+		inner->padding = padding;
+	}
+	else
+	{
+		ret = false;
+		layout_end();
+		pop_id();
+	}
+
+	return ret;
+}
+
+void end_tree_node()
+{
+	layout_end();
 	layout_end();
 	layout_end();
 	pop_id();

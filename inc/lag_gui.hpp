@@ -358,7 +358,7 @@ struct Box {
 	Box* first_child;
 	Box* last_child;
 
-	Box* next_unknown_size;
+	Box* next_unknown_size[2];
 
 	Box* hash_next;
 
@@ -380,14 +380,16 @@ struct Box {
 
 	// Final size of the layout
 	v2 calculated_size;
-	bool size_calculated;
+	bool is_size_calculated[2];
 	// Added to by child elements
 	// + on axis, max() on cross-axis
 	v2 used_size;
 	v2 prev_used_size;
+	// Combined size of all static (pixel) size elements
+	v2 static_size;
 	u32 child_count;
 	// For each axis, how many of the children were able to calculate their size
-	u32 known_size_child_count;
+	u32 known_size_child_count[2];
 	v2 calculated_position;
 
 	DrawHook draw_hook;
@@ -418,12 +420,14 @@ struct Box {
 	void end();
 
 	// at_end indicates if the node has ended (or has no (more) children)
-	void try_calculate_size(bool at_end, bool at_post);
-	void add_used_size(v2 pixel_size);
+	void end_calculate_size(int index);
+	void add_used_size(int index, f32 pixel_size);
+	void add_static_size(int index, f32 pixel_size);
 
 	// Calculate size after the initial build phase
 	// Asserts if size cannot be calculated (which probably means the unknown size list is incorrect, or there is a bug)
-	void post_calculate_size();
+	void post_calculate_percent(int index);
+	void post_calculate_fit(int index);
 
 	Rect prev_rect() { return Rect::from_pos_size(calculated_position, calculated_size); }
 
@@ -443,14 +447,6 @@ enum TriangleStripMode {
 	TriangleStripMode_None,
 	TriangleStripMode_Strip,
 	TriangleStripMode_Convex,
-};
-
-struct ClipRect {
-	Rect original_rect;
-	// Clip rect that immediately gets clipped by the previous clip rect
-	Rect input_clip_rect;
-	bool is_layout; // Otherwise, the layout_id refers to the parent
-	u32 layout_depth;
 };
 
 struct Painter {
@@ -665,8 +661,11 @@ struct Panel {
 	// Boxs from previous and current frame
 	// Swap between these two every frame
 	Box** box_lookup[2];
-	Box* first_unknown_size;
-	Box* last_unknown_size;
+
+	Box* first_unknown_fit[2];
+	Box* last_unknown_fit[2];
+	// Pc is a reverse singly linked list
+	Box* last_unknown_pc[2];
 
 	Box* root_box;
 
@@ -849,8 +848,17 @@ void separator_text(const char* text);
 void spacer(f32 size);
 // Inserts a 0 width or height element but with given size
 void min_size(f32 size);
+
 bool begin_fancy_collapse_header(const char* name);
 void end_fancy_collapse_header();
+
+bool begin_tab_bar(const char* name);
+void end_tab_bar();
+bool do_tab(const char* name);
+
+bool begin_tree_node(const char* name);
+void end_tree_node();
+
 
 void draw_open_triangle(Painter* painter, v2 pos, f32 size, f32 rotation, Color color);
 
