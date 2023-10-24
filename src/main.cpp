@@ -234,7 +234,7 @@ struct LayoutTest {
 
 void layout_test(LayoutTest& test)
 {
-	if (lgui::begin_panel("Layout test 2", Rect::from_pos_size({}, { 400, 400 }), 0))
+	if (lgui::begin_panel("Layout test 2", Rect::from_pos_size({100, 100}, { 400, 400 }), lgui::PanelFlag_TitleBar))
 	{
 		LGUI_H_LAYOUT(-1, 0)
 		{
@@ -303,8 +303,8 @@ void layout_test(LayoutTest& test)
 				lgui::radio_button("radio", 0, &emtpy_int);
 				lgui::checkbox("check", &empty_bool);
 
-				//lgui::Box* box = lgui::make_box("boox", {lgui::pc(1.f), lgui::px(20.f)}, 0);
-				//box->set_rectangle({ 1, 0, 0, 1 });
+				lgui::Box* box = lgui::make_box("boox", {lgui::pc(1.f), lgui::px(20.f)}, 0);
+				box->set_rectangle({ 1, 0, 0, 1 });
 			}
 
 			lgui::layout_end();
@@ -400,9 +400,30 @@ int main()
 		//if (IsKeyPressed(KEY_ENTER) || IsKeyDown(KEY_RIGHT_SHIFT))
 		{
 			lgui::begin_frame(GetFrameTime());
+			context->app_window_size = {(f32)GetScreenWidth(), (f32)GetScreenHeight()};
 
 			layout_test(layout_t);
+
+			Rect full_rect = Rect::from_pos_size({}, context->app_window_size);
+			Rect menu_bar = full_rect.cut_top(25.f);
+			Rect left_window = full_rect.cut_left(full_rect.width() * 0.3f);
 			
+			if (lgui::begin_panel("Menu Bar", menu_bar, lgui::PanelFlag_AlwaysResetRect))
+			{
+				if (lgui::button("File").clicked)
+				{
+
+				}
+				lgui::end_panel();
+			}
+
+			if (lgui::begin_panel("Left Window", left_window, lgui::PanelFlag_AlwaysResetRect))
+			{
+				lgui::text("hello world");
+				lgui::end_panel();
+			}
+			
+#if 0
 			if (lgui::begin_panel("Box test", lgui::Rect::from_pos_size(lgui::v2{250, 250}, lgui::v2{450, 450}), 0))
 			{
 				LGUI_H_LAYOUT(-1, -1, {lgui::pc(1.f), lgui::fit()})
@@ -494,6 +515,7 @@ int main()
 
 				lgui::end_panel();
 			}
+#endif
 
 #if 0
 			/*

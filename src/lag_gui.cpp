@@ -1159,6 +1159,11 @@ bool begin_panel(const char* name, Rect rect, PanelFlag flags)
 	panel->last_unknown_pc[1] = nullptr;
 	panel->flags = flags;
 
+	if (flags & PanelFlag_AlwaysResetRect)
+	{
+		panel->rect = rect;
+	}
+
 	if (panel->frame_last_updated == 0)
 	{
 		// First usage
@@ -2016,7 +2021,6 @@ static void _draw_box(Painter& painter, Box* box, const Rect* clip_rect)
 
 	// Optimization avoiding get_clip_rect
 	Rect pass_clip_rect;
-	const Rect* clip_old;
 
 	//Rect rect = box->prev_rect().pad(box->padding);
 	// Manual inline
@@ -2069,7 +2073,6 @@ static void _draw_box(Painter& painter, Box* box, const Rect* clip_rect)
 	{
 		painter.push_clip_rect(rect);
 		pass_clip_rect = painter.get_clip_rect();
-		clip_old = clip_rect;
 		clip_rect = &pass_clip_rect;
 
 		//debug_rect(*clip_rect, "clip", { 1, 0, 0, 1 });
@@ -2131,7 +2134,6 @@ static void _draw_box(Painter& painter, Box* box, const Rect* clip_rect)
 	if (box->flags & BoxFlag_Clip)
 	{
 		painter.pop_clip_rect();
-		clip_rect = clip_old;
 	}
 
 	//debug_rect(rect, "lol", {1, 1, 0, 1});
