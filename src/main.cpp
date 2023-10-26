@@ -1,6 +1,5 @@
 #include <iostream>
 #include "lag_gui.hpp"
-#include "main.h"
 #include "raylib.h"
 #include "rlgl.h"
 #include <vector>

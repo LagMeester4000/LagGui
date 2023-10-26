@@ -1,7 +1,6 @@
 #include "lag_gui.hpp"
 #include "basic.hpp"
 #include "crc32.hpp"
-#include <corecrt_math.h>
 #include <string.h>
 
 #include "raylib.h"

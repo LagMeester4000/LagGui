@@ -1,9 +1,7 @@
 #pragma once
 #include "basic.hpp"
-#include "lag_gui.hpp"
 
 // TEMP
-#include "stb_truetype.h"
 #include "raylib.h"
 
 namespace lgui {
