@@ -52,6 +52,26 @@ inline void __lgui_assert()
 			obj->next_name = nullptr; \
 		} \
 	}
+// Append element at the start of the list
+#define LGUI_LL_APPEND_START(obj, prev_name, next_name, first, last) \
+	{ \
+		if (first == nullptr) \
+		{ \
+			LGUI_ASSERT(last == nullptr, "If first is empty then last must be empty"); \
+			first = obj; \
+			last = obj; \
+			obj->prev_name = nullptr; \
+			obj->next_name = nullptr; \
+		} \
+		else \
+		{ \
+			LGUI_ASSERT(last != nullptr, "Last must exist"); \
+			first->prev_name = obj; \
+			obj->next_name = first; \
+			first = obj; \
+			obj->prev_name = nullptr; \
+		} \
+	}
 // For singly linked list
 #define LGUI_SLL_APPEND_END(obj, next_name, first, last) \
 	{ \

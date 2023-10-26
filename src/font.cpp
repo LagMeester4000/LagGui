@@ -22,8 +22,6 @@ void try_packing(Arena* tmp_arena)
 	auto nodes = tmp_arena->allocate_array<stbrp_node>(512);
 	stbrp_context packer{};
 	stbrp_init_target(&packer, 512, 512, nodes.ptr, (int)nodes.length);
-
-	//stbrp_pack_rects(&packer, );
 }
 
 Font* Atlas::add_font(const char* filename, f32 pixel_height)

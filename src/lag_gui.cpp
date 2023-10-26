@@ -85,20 +85,6 @@ void begin_frame(f32 delta_time)
 	context->temp_arena = &context->temp_arena_arr[context->current_frame % 2];
 	context->temp_arena->reset();
 
-	// Find overlap panel
-	{
-		v2 mouse = v2::from(GetMousePosition());
-
-		context->overlap_panel = nullptr;
-		for (Panel* panel = context->first_depth_panel; panel; panel = panel->order_next)
-		{
-			if (panel->rect.overlap(mouse))
-			{
-				context->overlap_panel = panel;
-			}
-		}
-	}
-
 	// Input
 	{
 		// Must be done _before_ new input is inserted
@@ -115,6 +101,7 @@ void begin_frame(f32 delta_time)
 			state.buttons[1] = IsMouseButtonDown(1);
 			state.buttons[2] = IsMouseButtonDown(2);
 			state.pos = v2::from(GetMousePosition());
+			state.scroll_wheel = v2::from(GetMouseWheelMoveV());
 
 			context->mouse_states[1] = context->mouse_states[0];
 			context->mouse_states[0] = state;
@@ -135,6 +122,26 @@ void begin_frame(f32 delta_time)
 			context->hover_id = context->overlap_id;
 			context->overlap_id = 0;
 		}
+	}
+
+	// Find overlap panel
+	{
+		v2 mouse = v2::from(GetMousePosition());
+
+		context->overlap_panel = nullptr;
+		for (Panel* panel = context->first_depth_panel; panel; panel = panel->order_next)
+		{
+			if (panel->rect.overlap(mouse))
+			{
+				context->overlap_panel = panel;
+			}
+		}
+	}
+
+	// Focus clicked panels
+	if (context->overlap_panel && (!(context->overlap_panel->flags & PanelFlag_AlwaysBackground)) && mouse_pressed())
+	{
+		move_panel_to_front(context->overlap_panel);
 	}
 
 	++context->current_frame;
@@ -173,6 +180,26 @@ void end_frame()
 	}
 	context->first_root_dock = nullptr;
 	context->last_root_dock = nullptr;
+
+	// Input
+	{
+		// Reset keys for next frame
+		{
+			// Shift all inputs to the previous frame position, or null
+			for (usize i = 0; i < Key::MAX; ++i)
+			{
+				u8& key = context->keys[i];
+				// Set the first bit to the state of the second bit
+				// If the key was pressed, it will become held
+				// If the key was released, it will become 0
+				key &= Key::CURRENT_FRAME_MASK;
+				key |= (key >> 1);
+			}
+		}
+
+		// Reset codepoints
+		context->codepoints_pressed_length = 0;
+	}
 }
 
 void draw_frame()
@@ -198,6 +225,8 @@ ID calc_id(const byte* data, usize length)
 ID get_id(const char* string)
 {
 	Context* context = get_context();
+
+	// Find any 
 
 	return calc_id((const byte*)string, strlen(string));
 }
@@ -1052,7 +1081,7 @@ static void _delete_old_panels()
 	for (ToDeletePanel* it = to_delete; it; it = it->next)
 	{
 		// TODO: Temporarily disabled because it causes docking windows to be deleted
-		//_delete_panel(context, it->panel);
+		_delete_panel(it->panel);
 	}
 }
 
@@ -1132,6 +1161,7 @@ bool begin_panel(const char* name, Rect rect, PanelFlag flags)
 		prev_top_panel->get_painter()._push_command();
 	}
 
+	// Initialize the painter
 	if (panel->is_docked())
 	{
 		Painter& painter = panel->get_painter();
@@ -1151,6 +1181,7 @@ bool begin_panel(const char* name, Rect rect, PanelFlag flags)
 		panel->get_painter()._start_painter();
 	}
 
+	// Reset values
 	panel->first_unknown_fit[0] = nullptr;
 	panel->first_unknown_fit[1] = nullptr;
 	panel->last_unknown_fit[0] = nullptr;
@@ -1162,6 +1193,11 @@ bool begin_panel(const char* name, Rect rect, PanelFlag flags)
 	if (flags & PanelFlag_AlwaysResetRect)
 	{
 		panel->rect = rect;
+	}
+	if (flags & PanelFlag_AlwaysBackground && !panel->is_docked() && panel->open)
+	{
+		LGUI_LL_REMOVE(panel, order_prev, order_next, context->first_depth_panel, context->last_depth_panel);
+		LGUI_LL_APPEND_START(panel, order_prev, order_next, context->first_depth_panel, context->last_depth_panel);
 	}
 
 	if (panel->frame_last_updated == 0)
@@ -1187,27 +1223,6 @@ bool begin_panel(const char* name, Rect rect, PanelFlag flags)
 	}
 	panel->frame_last_updated = context->current_frame;
 
-	// Animate open/close
-	f32 open_target = panel->open ? 1.f : 0.f;
-	panel->open_anim = interp_towards(panel->open_anim, open_target, 15, 0.01666f);
-
-	// Create rects
-	const Style& style = get_style();
-	Painter& painter = panel->get_painter();
-	f32 line_height = style.line_height();
-	Rect window_whole = panel->rect;
-
-	// Animate open/close
-	window_whole.bottom_right.y = lerp(window_whole.top_left.y + line_height + 2, window_whole.bottom_right.y, panel->open_anim);
-	Rect window_pad = window_whole.pad(1);
-
-	bool has_title_bar = !panel->is_docked() && (flags & PanelFlag_TitleBar);
-	Rect window_title_bar{};
-	if (has_title_bar)
-	{
-		window_title_bar = window_pad.cut_top(style.line_height());
-	}
-
 	// Close a docked but not selected panel
 	bool deactivate = false;
 	if (panel->is_docked() && panel->parent_dock->selected_tab != panel)
@@ -1217,46 +1232,6 @@ bool begin_panel(const char* name, Rect rect, PanelFlag flags)
 
 	// Input
 	{
-		if (has_title_bar && !deactivate)
-		{
-			// Title bar
-			{
-				InputResult r = handle_element_input(window_title_bar, panel->id, true);
-				if (r.dragging)
-				{
-					panel->rect.move(r.drag_delta);
-
-					// Also update the created rects
-					window_whole.move(r.drag_delta);
-					window_pad.move(r.drag_delta);
-					window_title_bar.move(r.drag_delta);
-				}
-
-				// Check for dockig
-				if (!panel->is_docked())
-				{
-					check_docking(panel, &r);
-				}
-
-				if (r.pressed)
-				{
-					move_panel_to_front(panel);
-				}
-			}
-
-			// Close button
-			{
-				Rect close_button = window_title_bar;
-				close_button = close_button.cut_left(close_button.size().y);
-				ID close_button_id = get_id("__close_button");
-				InputResult r = handle_element_input(close_button, close_button_id);
-				if (r.clicked)
-				{
-					panel->open = !panel->open;
-				}
-			}
-		}
-
 		// Tab selection
 		if (panel->is_docked())
 		{
@@ -1270,28 +1245,7 @@ bool begin_panel(const char* name, Rect rect, PanelFlag flags)
 		}
 	}
 
-	// Draw
-	if (!deactivate)
-	{
-		painter.draw_rectangle(window_whole, style.window_outline);
-		painter.draw_rectangle(window_pad, style.window_background);
-
-		if (has_title_bar)
-		{
-			painter.draw_rectangle(window_title_bar, style.window_title_background);
-			painter.draw_text(style.default_font, name, window_title_bar.top_left + v2{line_height, style.line_padding}, 0, style.window_title_color);
-
-			f32 triangle_pad = style.line_padding + 3;
-			draw_open_triangle(&painter, window_title_bar.top_left + v2{triangle_pad, triangle_pad}, line_height - triangle_pad * 2.f, lerp(0, 90, panel->open_anim), style.window_title_color);
-		}
-
-	}
-	panel->content = window_pad.pad(2);
-	panel->start_draw_pos = panel->content.top_left - panel->scroll_pos;
-	panel->draw_pos = panel->start_draw_pos;
-
-
-	bool open = panel->open || panel->open_anim >= 0.001f;
+	bool open = panel->open;
 
 	// Close a docked but not selected panel
 	if (deactivate)
@@ -1299,8 +1253,17 @@ bool begin_panel(const char* name, Rect rect, PanelFlag flags)
 		open = false;
 	}
 
-	//layout_static(panel->id + 1, panel->content, false, false, -1, 0, 2.f, {}, BoxFlag_Clip);
-	panel->root_box = push_box("root_panel", px(panel->content.width(), panel->content.height()), BoxFlag_Static | BoxFlag_Clip);
+	Size size_x = flags & PanelFlag_AutoResizeHorizontal ? fit() : px(panel->rect.width());
+	Size size_y = flags & PanelFlag_AutoResizeVertical ? fit() : px(panel->rect.height());
+	u32 root_flags = BoxFlag_Static | BoxFlag_IsRoot;
+	root_flags |= flags & PanelFlag_NoClipContent ? 0 : BoxFlag_Clip;
+	panel->root_box = push_box("root_panel", {size_x, size_y}, root_flags);
+	
+	if (!(flags & PanelFlag_NoBackground))
+	{
+		const Style& style = get_style();
+		panel->root_box->set_rectangle(style.window_background, style.window_outline, 1.f);
+	}
 
 	if (!open)
 	{
@@ -1315,8 +1278,28 @@ void end_panel()
 	Panel* panel = get_current_panel();
 	Painter& painter = panel->get_painter();
 
-	//end_layout();
 	pop_box();
+
+	// Push panel into bounds
+	{
+		v2 app_size = get_context()->app_window_size;
+		if (panel->rect.bottom_right.x > app_size.x)
+		{
+			panel->rect.move(v2{app_size.x - panel->rect.bottom_right.x, 0.f});
+		}
+		if (panel->rect.bottom_right.y > app_size.y)
+		{
+			panel->rect.move(v2{0.f, app_size.y - panel->rect.bottom_right.y});
+		}
+		if (panel->rect.top_left.x < 0.f)
+		{
+			panel->rect.move(v2{-panel->rect.top_left.x, 0.f});
+		}
+		if (panel->rect.top_left.y < 0.f)
+		{
+			panel->rect.move(v2{0.f, -panel->rect.top_left.y});
+		}
+	}
 
 	// Calculate missing box sizes
 	for (int i = 0; i < 2; ++i)
@@ -1335,37 +1318,16 @@ void end_panel()
 	}
 
 	// Draw boxes
-	_draw_boxes(painter, panel->root_box, panel->content.top_left);
+	_draw_boxes(painter, panel->root_box, panel->rect.top_left);
 
-	panel->end_draw_pos = panel->draw_pos;
-	v2 draw_size = panel->end_draw_pos - panel->start_draw_pos;
-
-	// Y Scroll
-	if (draw_size.y > panel->content.height() && draw_size.y > 10.f)
+	// Store window size if resizable
+	if (panel->flags & PanelFlag_AutoResizeHorizontal)
 	{
-		v2 scroll_size = draw_size - panel->content.size();
-		Rect rect = panel->content;
-		rect = rect.cut_right(8);
-		Rect scroll_base = rect.cut_top(50);
-
-		Rect scroll = scroll_base;
-		f32 scroll_per_pixel = rect.height() / scroll_size.y;
-		scroll.move({0, scroll_per_pixel * panel->scroll_pos.y});
-
-		InputResult input = handle_element_input(scroll, get_id("__scroll_y"), true);
-		if (input.dragging)
-		{
-			f32 movement = input.drag_delta.y / scroll_per_pixel;
-			panel->scroll_pos.y += movement;
-			panel->scroll_pos.y = LGUI_CLAMP(0.f, scroll_size.y, panel->scroll_pos.y);
-
-			// Immediately move the rect
-			scroll = scroll_base;
-			f32 scroll_per_pixel = rect.height() / scroll_size.y;
-			scroll.move({0, scroll_per_pixel * panel->scroll_pos.y});
-		}
-
-		painter.draw_rectangle(scroll, {0.4f, 0.4f, 0.4f, 0.7f});
+		panel->rect.bottom_right.x = panel->rect.top_left.x + panel->root_box->calculated_size.x;
+	}
+	if (panel->flags & PanelFlag_AutoResizeVertical)
+	{
+		panel->rect.bottom_right.y = panel->rect.top_left.y + panel->root_box->calculated_size.y;
 	}
 
 	// Restart painter of previous window if it exists
@@ -1379,6 +1341,64 @@ void end_panel()
 
 	pop_id();
 	pop_panel();
+}
+
+bool begin_window(const char* name, Rect rect, PanelFlag flags)
+{
+	bool ret = begin_panel(name, rect, flags);
+
+	if (ret)
+	{
+		const Style& style = get_style();
+		Panel* panel = get_current_panel();
+
+		// Add title bar
+		if (!(flags & PanelFlag_NoTitleBar))
+		{
+			LGUI_H_LAYOUT(-1, 0, {pc(1.f), px(style.line_height())})
+			{
+				Box* title_bar = get_box();
+				title_bar->set_rectangle(style.window_title_background);
+				title_bar->padding = {2.f, 2.f};
+
+				spacer(style.line_padding);
+				text(name);
+
+				// Drag input
+				if (!(flags & PanelFlag_NoMove))
+				{
+					InputResult result = handle_element_input(title_bar->prev_rect(), title_bar->id, true, true);
+					if (result.dragging)
+					{
+						panel->rect.move(result.drag_delta);
+					}
+				}
+			}
+		}
+
+		Size size_x = flags & PanelFlag_AutoResizeHorizontal ? fit() : pc(1.f);
+		Size size_y = flags & PanelFlag_AutoResizeVertical ? fit() : rem(1.f);
+
+		u32 inner_flags = BoxFlag_Clip;
+		inner_flags |= flags & PanelFlag_AutoResizeHorizontal ? 0 : (BoxFlag_ScrollX | BoxFlag_FixedH);
+		inner_flags |= flags & PanelFlag_AutoResizeVertical ? 0 : (BoxFlag_ScrollY | BoxFlag_FixedV);
+
+		Box* inner = layout_vertical(-1, -1, {size_x, size_y}, inner_flags);
+		inner->padding = {style.window_content_padding, style.window_content_padding};
+	}
+
+	return ret;
+}
+
+bool begin_window(const char* name, v2 size, PanelFlag flags)
+{
+	return begin_window(name, Rect::from_pos_size({}, size), flags);
+}
+
+void end_window()
+{
+	layout_end();
+	end_panel();
 }
 
 void move_panel_to_front(Panel* panel)
@@ -1450,15 +1470,6 @@ void RetainedData::update_t_towards(bool hover, bool active, f32 rate)
 	hover_t = LGUI_CLAMP(0.f, 1.f, hover_t);
 	active_t += (active_goal - active_t) * dt * rate;
 	active_t = LGUI_CLAMP(0.f, 1.f, active_t);
-}
-
-v2 layout_next()
-{
-	Panel* panel = get_current_panel();
-	v2 ret = panel->draw_pos;
-	const Style& style = get_style();
-	panel->draw_pos.y += style.line_height();
-	return ret;
 }
 
 InputResult handle_element_input(Rect rect, ID id, bool enable_drag, bool ignore_clip)
@@ -1544,6 +1555,12 @@ InputResult handle_element_input(Rect rect, ID id, bool enable_drag, bool ignore
 	return ret;
 }
 
+bool is_mouse_overlapping(Rect rect)
+{
+	Context* context = get_context();
+	return context->overlap_panel == get_current_panel() && rect.overlap(mouse_pos());
+}
+
 bool mouse_pressed(int button)
 {
 	Context* context = get_context();
@@ -1570,6 +1587,83 @@ v2 mouse_pos()
 	Context* context = get_context();
 
 	return context->mouse_states[0].pos;
+}
+
+v2 mouse_scroll()
+{
+	Context* context = get_context();
+
+	return context->mouse_states[0].scroll_wheel;
+}
+
+void input_register_key_press(u32 key)
+{
+	LGUI_ASSERT(key < Key::MAX, "Key out of bounds");
+
+	Context* context = get_context();
+	// Set current frame bit
+	context->keys[key] |= Key::CURRENT_FRAME_MASK;
+}
+
+void input_register_key_release(u32 key)
+{
+	LGUI_ASSERT(key < Key::MAX, "Key out of bounds");
+
+	Context* context = get_context();
+	// Remove current frame bit
+	context->keys[key] &= ~Key::CURRENT_FRAME_MASK;
+}
+
+void input_register_key_down(u32 key, bool down)
+{
+	LGUI_ASSERT(key < Key::MAX, "Key out of bounds");
+
+	Context* context = get_context();
+	if (down)
+	{
+		context->keys[key] |= Key::CURRENT_FRAME_MASK;
+	}
+	else
+	{
+		context->keys[key] &= ~Key::CURRENT_FRAME_MASK;
+	}
+}
+
+void input_register_char_press(Codepoint codepoint)
+{
+	Context* context = get_context();
+	if (context->codepoints_pressed_length < INPUT_CODEPOINT_MAX)
+	{
+		context->codepoints_pressed[context->codepoints_pressed_length] = codepoint;
+		++context->codepoints_pressed_length;
+	}
+}
+
+bool key_pressed(u32 key)
+{
+	LGUI_ASSERT(key < Key::MAX, "Key out of bounds");
+	u8 value = get_context()->keys[key];
+	return !(value & Key::PREV_FRAME_MASK) && (value & Key::CURRENT_FRAME_MASK);
+}
+
+bool key_released(u32 key)
+{
+	LGUI_ASSERT(key < Key::MAX, "Key out of bounds");
+	u8 value = get_context()->keys[key];
+	return (value & Key::PREV_FRAME_MASK) && !(value & Key::CURRENT_FRAME_MASK);
+}
+
+bool key_down(u32 key)
+{
+	LGUI_ASSERT(key < Key::MAX, "Key out of bounds");
+	u8 value = get_context()->keys[key];
+	return value & Key::CURRENT_FRAME_MASK;
+}
+
+Slice<Codepoint> key_codepoints_pressed()
+{
+	Context* context = get_context();
+	return {context->codepoints_pressed, context->codepoints_pressed_length};
 }
 
 RetainedData* get_retained_data(ID id)
@@ -1665,6 +1759,7 @@ void Box::end_calculate_size(int index)
 			parent->add_static_size(index, calc_size);
 		}
 	} break;
+	case SizeType_Remainder:
 	case SizeType_Percent:
 	{
 		// Impossible, add to list
@@ -1687,7 +1782,8 @@ void Box::end_calculate_size(int index)
 		}
 		else
 		{
-			parent->add_static_size(index, index ? (static_size.y + padding.y * 2.f) : (static_size.x + padding.x * 2.f));
+			if (parent) 
+				parent->add_static_size(index, index ? (static_size.y + padding.y * 2.f) : (static_size.x + padding.x * 2.f));
 
 			Panel* panel = get_current_panel();
 			if (panel->last_unknown_fit[index])
@@ -1763,21 +1859,39 @@ void Box::add_static_size(int index, f32 pixel_size)
 
 void Box::post_calculate_percent(int index)
 {
-	LGUI_ASSERT(size[index].type == SizeType_Percent, "Box in percent calculation list, but is not percent type");
+	LGUI_ASSERT(size[index].type == SizeType_Percent || size[index].type == SizeType_Remainder, "Box in percent calculation list, but is not percent type");
 	LGUI_ASSERT(parent, "Percentage size requires parent");
 
 	f32& calc_size = index ? calculated_size.y : calculated_size.x;
 
-	if (parent->size[index].type == SizeType_Fit)
+	if (size[index].type == SizeType_Percent)
 	{
-		calc_size = (index ? parent->static_size.y : parent->static_size.x) * size[index].value;
+		if (parent->size[index].type == SizeType_Fit)
+		{
+			calc_size = (index ? parent->static_size.y : parent->static_size.x) * size[index].value;
+		}
+		else
+		{
+			calc_size = (index ? 
+				(parent->calculated_size.y - parent->padding.y * 2.f) : 
+				(parent->calculated_size.x - parent->padding.x * 2.f)) 
+				* size[index].value;
+		}
 	}
-	else
+	else // Remainder
 	{
-		calc_size = (index ? 
-			(parent->calculated_size.y - parent->padding.y * 2.f) : 
-			(parent->calculated_size.x - parent->padding.x * 2.f)) 
-			* size[index].value;
+		if (parent->size[index].type == SizeType_Fit)
+		{
+			calc_size = 0.f;
+		}
+		else
+		{
+			calc_size = (index ? 
+				(parent->calculated_size.y - parent->static_size.y - parent->padding.y * 2.f) : 
+				(parent->calculated_size.x - parent->static_size.x - parent->padding.x * 2.f)) 
+				* size[index].value;
+			calc_size = LGUI_MAX(calc_size, 0.f);
+		}
 	}
 
 	parent->add_used_size(index, calc_size);
@@ -1831,9 +1945,12 @@ Box* _allocate_box(ID id)
 		new_box->prev_used_size = new_box->used_size;
 		new_box->used_size = {};
 		new_box->static_size = {};
+		new_box->prev_calculated_position = new_box->calculated_position;
 		new_box->counter = 0;
 		new_box->is_size_calculated[0] = false;
 		new_box->is_size_calculated[1] = false;
+		new_box->next_unknown_size[0] = nullptr;
+		new_box->next_unknown_size[1] = nullptr;
 		// Keep calculated position/size so the user can reuse it
 	}
 	else
@@ -1888,12 +2005,13 @@ void push_box(Box* box)
 
 	push_id_raw(box->id);
 	
-	if (context->box_stack_top > 0)
+	if (context->box_stack_top > 0 && !(box->flags & BoxFlag_IsRoot))
 	{
 		Box* parent = context->box_stack[context->box_stack_top - 1];
 		parent->append_child(box);
-		box->begin();
 	}
+
+	box->begin();
 
 	LGUI_ASSERT(context->box_stack_top < BOX_STACK_SIZE, "Box stack out of bounds");
 	context->box_stack[context->box_stack_top] = box;
@@ -1936,28 +2054,20 @@ Box* get_box()
 	return context->box_stack_top > 0 ? context->box_stack[context->box_stack_top - 1] : nullptr;
 }
 
-Box* layout_horizontal(i8 h_align, i8 v_align, Size2 size)
+Box* layout_horizontal(i8 h_align, i8 v_align, Size2 size, u32 flags)
 {
-	//Box* push = push_box(box_generate_id(), size, BoxFlag_IsHorizontal | BoxFlag_DrawRectangle);
-	Box* push = push_box(box_generate_id(), size, BoxFlag_IsHorizontal);
+	Box* push = push_box(box_generate_id(), size, flags | BoxFlag_IsHorizontal);
 	push->h_align = h_align;
 	push->v_align = v_align;
-
-	// Debug
-	push->color = {1, 0, 0, 0.4f};
 
 	return push;
 }
 
-Box* layout_vertical(i8 h_align, i8 v_align, Size2 size)
+Box* layout_vertical(i8 h_align, i8 v_align, Size2 size, u32 flags)
 {
-	//Box* push = push_box(box_generate_id(), size, BoxFlag_DrawRectangle);
-	Box* push = push_box(box_generate_id(), size, 0);
+	Box* push = push_box(box_generate_id(), size, flags);
 	push->h_align = h_align;
 	push->v_align = v_align;
-
-	// Debug
-	push->color = {0, 0, 1, 0.4f};
 
 	return push;
 }
@@ -2022,8 +2132,6 @@ static void _draw_box(Painter& painter, Box* box, const Rect* clip_rect)
 	// Optimization avoiding get_clip_rect
 	Rect pass_clip_rect;
 
-	//Rect rect = box->prev_rect().pad(box->padding);
-	// Manual inline
 	Rect rect = {{box->calculated_position + box->padding}, {box->calculated_position + box->calculated_size - box->padding}};
 
 	//debug_rect(rect, "lol", {1, 1, 0, 1});
@@ -2082,10 +2190,12 @@ static void _draw_box(Painter& painter, Box* box, const Rect* clip_rect)
 	if (box->first_child)
 	{
 		Rect children = rect.align_size(box->used_size, box->h_align, box->v_align);
-		v2 pos = children.top_left;
+		v2 pos = children.top_left + box->offset;
 		f32 w = children.width();
 		f32 h = children.height();
 		bool horizontal = box->flags & BoxFlag_IsHorizontal;
+		int v_align = box->v_align;
+		int h_align = box->h_align;
 
 		if (horizontal)
 		{
@@ -2094,11 +2204,11 @@ static void _draw_box(Painter& painter, Box* box, const Rect* clip_rect)
 				// Calculate child position
 				it->calculated_position = pos;
 
-				if (box->v_align == 0)
+				if (v_align == 0)
 				{
 					it->calculated_position.y += h / 2.f - it->calculated_size.y / 2.f;
 				}
-				else if (box->v_align == 1)
+				else if (v_align == 1)
 				{
 					it->calculated_position.y += h - it->calculated_size.y;
 				}
@@ -2115,11 +2225,11 @@ static void _draw_box(Painter& painter, Box* box, const Rect* clip_rect)
 				// Calculate child position
 				it->calculated_position = pos;
 
-				if (box->h_align == 0)
+				if (h_align == 0)
 				{
 					it->calculated_position.x += w / 2.f - it->calculated_size.x / 2.f;
 				}
-				else if (box->h_align == 1)
+				else if (h_align == 1)
 				{
 					it->calculated_position.x += w - it->calculated_size.x;
 				}
@@ -2134,6 +2244,128 @@ static void _draw_box(Painter& painter, Box* box, const Rect* clip_rect)
 	if (box->flags & BoxFlag_Clip)
 	{
 		painter.pop_clip_rect();
+	}
+
+	// Handle Y scroll
+	if (box->flags & BoxFlag_ScrollY)
+	{
+		f32 scroll_bar_width = 10.f;
+		Color scroll_bar_color = {0.6f, 0.6f, 0.6f, 0.7f};
+		f32 mouse_scroll_speed = 25.f;
+
+		v2 top_right = box->calculated_position;
+		top_right.x += box->calculated_size.x;
+
+		f32 axis_size = box->calculated_size.y;
+		f32 used_size = box->used_size.y;
+		f32 area_size = rect.height();
+
+		if (used_size > area_size)
+		{
+			// The size of the scroll bar is based on the size of the view compared to the size of the content
+			// If the total content is 200 pixels high, but the view is 100 pixels high, the scroll bar will be 50 pixels high
+			f32 scroll_bar_size = (area_size / used_size) * axis_size;
+			f32 scroll_bar_offset = (-box->offset.y / (used_size - area_size)) * (axis_size - scroll_bar_size);
+			Rect scroll_rect = Rect::from_pos_size(
+				{top_right.x - scroll_bar_width, top_right.y + scroll_bar_offset}, 
+				{scroll_bar_width, scroll_bar_size}
+			);
+			
+			// Scroll bar dragging
+			InputResult input = handle_element_input(scroll_rect, box->id + 1, true);
+			if (input.dragging)
+			{
+				f32 value = input.drag_delta.y;
+				box->offset.y -= (value / (axis_size - scroll_bar_size)) * (used_size - area_size);
+			}
+
+			// Mouse wheel input
+			v2 mouse_wheel = mouse_scroll();
+			bool any_shift = key_down(Key::LeftShift) || key_down(Key::RightShift);
+			if (mouse_wheel.y != 0.f && !any_shift && is_mouse_overlapping(rect))
+			{
+				f32 value = -mouse_wheel.y * mouse_scroll_speed;
+				box->offset.y -= (value / (axis_size - scroll_bar_size)) * (used_size - area_size);
+			}
+
+			// Clip
+			if (box->offset.y < -(used_size - area_size))
+			{
+				box->offset.y = -(used_size - area_size);
+			}
+			if (box->offset.y > 0.f)
+			{
+				box->offset.y = 0.f;
+			}
+
+			// Rendering
+			painter.draw_rectangle(scroll_rect, scroll_bar_color);
+		}
+		else
+		{
+			box->offset.y = 0.f;
+		}
+	}
+
+	// Handle X scroll
+	if (box->flags & BoxFlag_ScrollX)
+	{
+		f32 scroll_bar_height = 10.f;
+		Color scroll_bar_color = {0.6f, 0.6f, 0.6f, 0.7f};
+		f32 mouse_scroll_speed = 25.f;
+
+		v2 bottom_left = box->calculated_position;
+		bottom_left.y += box->calculated_size.y;
+
+		f32 axis_size = box->calculated_size.x;
+		f32 used_size = box->used_size.x;
+		f32 area_size = rect.width();
+
+		if (used_size > area_size)
+		{
+			// The size of the scroll bar is based on the size of the view compared to the size of the content
+			// If the total content is 200 pixels high, but the view is 100 pixels high, the scroll bar will be 50 pixels high
+			f32 scroll_bar_size = (area_size / used_size) * axis_size;
+			f32 scroll_bar_offset = (-box->offset.x / (used_size - area_size)) * (axis_size - scroll_bar_size);
+			Rect scroll_rect = Rect::from_pos_size(
+				{bottom_left.x + scroll_bar_offset, bottom_left.y - scroll_bar_height},
+				{scroll_bar_size, scroll_bar_height}
+			);
+			
+			// Scroll bar dragging
+			InputResult input = handle_element_input(scroll_rect, box->id + 2, true);
+			if (input.dragging)
+			{
+				f32 value = input.drag_delta.x;
+				box->offset.x -= (value / (axis_size - scroll_bar_size)) * (used_size - area_size);
+			}
+
+			// Mouse wheel input
+			v2 mouse_wheel = mouse_scroll();
+			bool any_shift = key_down(Key::LeftShift) || key_down(Key::RightShift);
+			if (mouse_wheel.y != 0.f && any_shift && is_mouse_overlapping(rect))
+			{
+				f32 value = -mouse_wheel.y * mouse_scroll_speed;
+				box->offset.x -= (value / (axis_size - scroll_bar_size)) * (used_size - area_size);
+			}
+
+			// Clip
+			if (box->offset.x < -(used_size - area_size))
+			{
+				box->offset.x = -(used_size - area_size);
+			}
+			if (box->offset.x > 0.f)
+			{
+				box->offset.x = 0.f;
+			}
+
+			// Rendering
+			painter.draw_rectangle(scroll_rect, scroll_bar_color);
+		}
+		else
+		{
+			box->offset.x = 0.f;
+		}
 	}
 
 	//debug_rect(rect, "lol", {1, 1, 0, 1});

@@ -2,6 +2,7 @@
 #include "basic.hpp"
 
 #include <stdio.h>
+#include <stdarg.h>
 
 namespace lgui {
 
@@ -92,6 +93,20 @@ void min_size(f32 size)
 	}
 }
 
+Box* draw_hook(Size2 size, void* ud, DrawHook hook)
+{
+	Box* ret = make_box(box_generate_id(), size, 0);
+	ret->set_draw_hook(ud, hook);
+	return ret;
+}
+
+Box* draw_hook(Size2 size, DrawHook hook)
+{
+	Box* ret = make_box(box_generate_id(), size, 0);
+	ret->set_draw_hook(nullptr, hook);
+	return ret;
+}
+
 void text(const char* text, bool static_string)
 {
 	const Style& style = get_style();
@@ -118,12 +133,22 @@ void text(const char* text, bool static_string)
 	box->text_color = {1.f, 1.f, 1.f, 1.f};
 }
 
-static v2 _wrapped_text_size(const char* text, usize len, f32 width, Font* font)
+void textf(const char* format, ...)
 {
+	va_list args;
+	va_start(args, format);
 
+	int size = vsnprintf(nullptr, 0, format, args);
+	if (size < 0) return;
+	char* memory = (char*)get_context()->temp_arena->allocate_raw((usize)(size + 1));
+	vsnprintf(memory, size + 1, format, args);
+
+	va_end(args);
+
+	text(memory, true);
 }
 
-void text_wrapped(const char* text, Size width, bool static_string)
+static v2 _wrapped_text_size(const char* text, usize len, f32 width, Font* font)
 {
 
 }
@@ -311,13 +336,24 @@ bool begin_tree_node(const char* name)
 
 	v2 padding = {2.f, 2.f};
 	f32 tab = 20.f;
+	Color spacer_color = style.button_text;
+	spacer_color.a = 0.7f;
+
+	auto fancy_spacer = [&]() {
+		layout_vertical(0, 1, {px(tab), pc(1.f)});
+		Box* line = make_box(box_generate_id(), {px(2.f), rem(1.f)}, 0);
+		line->set_rectangle(spacer_color);
+		spacer(3.f);
+		layout_end();
+	};
 
 	bool ret = true;
 	if (retained->open && retained->active_t >= 0.99f)
 	{
 		{
 			layout_horizontal(-1, 1, {fit(), fit()});
-			spacer(tab);
+			//spacer(tab);
+			fancy_spacer();
 		}
 
 		Box* inner = layout_vertical(-1, 1, {fit(), fit()});
@@ -327,7 +363,8 @@ bool begin_tree_node(const char* name)
 	{
 		{
 			layout_horizontal(-1, 1, {fit(), fit()});
-			spacer(tab);
+			//spacer(tab);
+			fancy_spacer();
 		}
 
 		Box* inner = layout_vertical(-1, 1, {fit(), px(100)});

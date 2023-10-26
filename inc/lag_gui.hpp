@@ -275,7 +275,7 @@ struct Style {
 	Font* default_font;
 
 	f32 line_padding; // Line padding on top of font size
-	f32 default_layout_spacing;
+	f32 window_content_padding;
 
 	Color window_background;
 	Color window_outline;
@@ -314,6 +314,7 @@ using DrawHook = void(*)(Box* box, Painter& painter, Rect rect);
 enum SizeTypes {
 	SizeType_Px,
 	SizeType_Percent, // Percentage of parent
+	SizeType_Remainder, // Percentage of remaining size in parent (size - static_size)
 	SizeType_Fit, // Size of children
 };
 
@@ -332,6 +333,7 @@ inline Size2 px(f32 x, f32 y) { return {{SizeType_Px, x}, {SizeType_Px, y}}; }
 inline Size pc(f32 v) { return {SizeType_Percent, v}; }
 inline Size2 pc(f32 x, f32 y) { return {{SizeType_Percent, x}, {SizeType_Percent, y}}; }
 inline Size fit() { return {SizeType_Fit, 1.f}; }
+inline Size rem(f32 v) { return {SizeType_Remainder, v}; }
 
 enum BoxFlags {
 	BoxFlag_IsHorizontal = 1 << 0,
@@ -339,15 +341,23 @@ enum BoxFlags {
 	BoxFlag_FixedH = 1 << 3, // Fixed horizontal size
 	BoxFlag_FixedV = 1 << 4, // Fixed vertical size
 	BoxFlag_Static = 1 << 5,
+	BoxFlag_IsRoot = 1 << 6,
 
-	BoxFlag_ScrollX = 1 << 6,
-	BoxFlag_ScrollY = 1 << 7,
-	BoxFlag_Clip = 1 << 8,
+	BoxFlag_ScrollX = 1 << 7,
+	BoxFlag_ScrollY = 1 << 8,
+	BoxFlag_Clip = 1 << 9,
 
-	BoxFlag_DrawRectangle = 1 << 9, // Will draw a full-size rectangle in the box
-	BoxFlag_DrawCircle = 1 << 10,
-	BoxFlag_DrawText = 1 << 11, // Will draw text in in the aligned position within the box
-	BoxFlag_DrawHook = 1 << 12,
+	// Animate position relative to parent
+	BoxFlag_AnimateX = 1 << 10,
+	BoxFlag_AnimateY = 1 << 11,
+
+	// Draw flags
+	BoxFlag_DrawRectangle = 1 << 12, // Will draw a full-size rectangle in the box
+	BoxFlag_DrawCircle = 1 << 13,
+	BoxFlag_DrawText = 1 << 14, // Will draw text in in the aligned position within the box
+	BoxFlag_DrawHook = 1 << 15,
+
+	// Combined flags
 	BoxFlag_AnyDrawFlags = BoxFlag_DrawRectangle | BoxFlag_DrawCircle | BoxFlag_DrawText | BoxFlag_DrawHook,
 };
 
@@ -381,16 +391,24 @@ struct Box {
 	// Final size of the layout
 	v2 calculated_size;
 	bool is_size_calculated[2];
+
 	// Added to by child elements
 	// + on axis, max() on cross-axis
 	v2 used_size;
 	v2 prev_used_size;
 	// Combined size of all static (pixel) size elements
 	v2 static_size;
+
 	u32 child_count;
 	// For each axis, how many of the children were able to calculate their size
 	u32 known_size_child_count[2];
+
+	// Final position of the box
 	v2 calculated_position;
+	v2 prev_calculated_position;
+
+	// Value added to the final position of the children of this box
+	v2 offset;
 
 	DrawHook draw_hook;
 	void* draw_user_data;
@@ -407,9 +425,6 @@ struct Box {
 	// Animation
 	f32 hover_t;
 	f32 active_t;
-
-	// Safety check
-	bool d_ended;
 
 	// Adds the child box to the tree
 	void append_child(Box* box);
@@ -513,12 +528,12 @@ struct Painter {
 void rl_render();
 
 // Same key mapping as Raylib and GLFW
-// Taken from Raylib
+// Lifted from Raylib
 struct Key {
 	enum {
-		Null = 0,        // Key: NULL, used for no key pressed
+		Null = 0, // Key: NULL, used for no key pressed
 		// Alphanumeric keys
-		Apostrophe = 39,       // Key: '
+		Apostrophe = 39, // Key: '
 
 		Comma = 44, // Key: ,
 		Minus = 45, // Key: -
@@ -630,7 +645,11 @@ struct Key {
 		Back = 4, // Key: Android back button
 		Menu = 82, // Key: Android menu button
 		VolumeUp = 24, // Key: Android volume up button
-		VolumeDown = 25 // Key: Android volume down button
+		VolumeDown = 25, // Key: Android volume down button
+		MAX = 350,
+
+		CURRENT_FRAME_MASK = 1 << 1,
+		PREV_FRAME_MASK = 1 << 0,
 	};
 };
 
@@ -652,6 +671,7 @@ const f32 MIN_DRAG_DISTANCE = 2.f;
 
 struct MouseState {
 	v2 pos;
+	v2 scroll_wheel;
 	bool buttons[3];
 };
 
@@ -716,18 +736,16 @@ struct DockCommand {
 
 using PanelFlag = u32;
 enum {
-	PanelFlag_TitleBar = 1 << 0, // Show title bar
-	PanelFlag_MenuBar = 1 << 1, // Show menu bar
-	PanelFlag_CanMove = 1 << 2, // Can move the panel by draggin the title
+	PanelFlag_NoTitleBar = 1 << 0,
+	PanelFlag_NoBackground = 1 << 1,
+	PanelFlag_NoMove = 1 << 2, // Cannot move the panel by dragging the title
 	PanelFlag_CanResize = 1 << 3, // Show resize control in bottom right
-	PanelFlag_AutoResizeHorizontal = 1 << 4,
-	PanelFlag_AutoResizeVertical = 1 << 5,
+	PanelFlag_AutoResizeHorizontal = 1 << 4, // Otherwise, use a scroll bar
+	PanelFlag_AutoResizeVertical = 1 << 5, // Otherwise, use a scroll bar
 	PanelFlag_AlwaysResetRect = 1 << 6,
+	PanelFlag_AlwaysBackground = 1 << 7, // Can't move this panel to the background
 
-	PanelFlag_DrawBackground = 1 << 6,
-	PanelFlag_ClipContent = 1 << 7, // Add a clip rect before rendering the content
-
-	PanelFlag_Animate = 1 << 8, // Animate t values
+	PanelFlag_NoClipContent = 1 << 8, // Add a clip rect before rendering the content
 
 	PanelFlag_DockedTitleBar = 1 << 9, // Show docked title bar (a tab), even when there are no other docked windows
 	PanelFlag_CanDock = 1 << 10, // Panel that can dock into other dock panels, and other panels can dock into it
@@ -739,8 +757,7 @@ enum {
 };
 
 const usize RETAINED_TABLE_SIZE = 16;
-//const usize BOX_TABLE_SIZE = 32;
-const usize BOX_TABLE_SIZE = 512 * 16;
+const usize BOX_TABLE_SIZE = 64;
 const usize PANEL_NAME_SIZE = 16;
 
 struct Panel {
@@ -748,17 +765,8 @@ struct Panel {
 	ID id;
 	u32 frame_last_updated;
 	bool open;
-	f32 open_anim;
 
 	Rect rect;
-	Rect content;
-
-	v2 scroll_pos;
-
-	// Temp layouting
-	v2 draw_pos;
-	v2 start_draw_pos;
-	v2 end_draw_pos;
 
 	// Depth
 	Panel* order_next; // Towards the screen
@@ -805,6 +813,7 @@ const usize PANEL_STACK_SIZE = 32;
 const usize STYLE_STACK_SIZE = 32;
 const usize BOX_STACK_SIZE = 32;
 const usize PANEL_MAP_SIZE = 32;
+const usize INPUT_CODEPOINT_MAX = 8;
 
 struct Context {
 	// List of root panels sorted by depth/render order
@@ -870,6 +879,11 @@ struct Context {
 
 	// Atlas
 	Atlas atlas;
+
+	// Key input
+	Codepoint codepoints_pressed[INPUT_CODEPOINT_MAX];
+	usize codepoints_pressed_length;
+	u8 keys[Key::MAX];
 };
 
 
@@ -904,6 +918,7 @@ void pop_style();
 const Style& get_style();
 void set_default_style(const Style& style);
 
+
 // Only allocate the box
 Box* _allocate_box(ID id);
 // Allocate box and add it to the parent box
@@ -918,8 +933,8 @@ Box* get_box();
 
 const Size2 DEFAULT_LAYOUT_SIZE = {{SizeType_Fit, 1.f}, {SizeType_Fit, 1.f}};
 
-Box* layout_horizontal(i8 h_align, i8 v_align, Size2 size = DEFAULT_LAYOUT_SIZE);
-Box* layout_vertical(i8 h_align, i8 v_align, Size2 size = DEFAULT_LAYOUT_SIZE);
+Box* layout_horizontal(i8 h_align, i8 v_align, Size2 size = DEFAULT_LAYOUT_SIZE, u32 flags = 0);
+Box* layout_vertical(i8 h_align, i8 v_align, Size2 size = DEFAULT_LAYOUT_SIZE, u32 flags = 0);
 // Does the same thing as pop_box
 void layout_end();
 #define LGUI_H_LAYOUT(...) LGUI_DEFER_LOOP(lgui::layout_horizontal(__VA_ARGS__), lgui::layout_end())
@@ -927,8 +942,7 @@ void layout_end();
 
 // Generate an ID based on position in the layout
 ID box_generate_id();
-//f32 box_width();
-//f32 box_height();
+
 
 Panel* get_panel(ID id);
 Panel* get_current_panel();
@@ -937,20 +951,28 @@ void end_panel();
 void move_panel_to_front(Panel* panel);
 Painter& get_painter();
 
+bool begin_window(const char* name, Rect rect, PanelFlag flags);
+bool begin_window(const char* name, v2 size, PanelFlag flags = 0);
+void end_window();
+
 
 // Gets the retained data, or create it if it doesn't exist
 RetainedData* get_retained_data(ID id);
 
 
 InputResult handle_element_input(Rect rect, ID id, bool enable_drag = false, bool ignore_clip = false);
+bool is_mouse_overlapping(Rect rect);
 bool mouse_pressed(int button = 0);
 bool mouse_released(int button = 0);
 bool mouse_down(int button = 0);
 v2 mouse_pos();
+v2 mouse_scroll();
 
+void input_register_char_press(Codepoint codepoint);
 void input_register_key_press(u32 key);
 void input_register_key_release(u32 key);
-void input_register_char_press(Codepoint codepoint);
+// Alternative method to register key input
+void input_register_key_down(u32 key, bool down);
 
 bool key_pressed(u32 key);
 bool key_released(u32 key);
@@ -969,16 +991,15 @@ InputResult radio_button(const char* name, int option, int* selected);
 InputResult drag_value(const char* name, f32* value);
 bool collapse_header(const char* name);
 void text(const char* text, bool static_string = false);
-void text_wrapped(const char* text, Size width, bool static_string = false);
-//void text(const char* text, bool wrap = false);
-bool input_text(char* buffer, usize buffer_size, bool wrap = false);
+void textf(const char* format, ...);
+//bool input_text(char* buffer, usize buffer_size, bool wrap = false);
 void separator();
-// Only works in vertical layout
-void separator_text(const char* text);
 // Emtpy space on the axis of the layout
 void spacer(f32 size);
 // Inserts a 0 width or height element but with given size
 void min_size(f32 size);
+Box* draw_hook(Size2 size, void* ud, DrawHook hook);
+Box* draw_hook(Size2 size, DrawHook hook);
 
 bool begin_fancy_collapse_header(const char* name);
 void end_fancy_collapse_header();

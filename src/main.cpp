@@ -95,146 +95,152 @@ struct NoteArea {
 
 void area_test(lgui::Context* context, NoteArea& area)
 {
-	if (lgui::begin_panel("Area", Rect::from_pos_size({}, {500, 500}), 0))
+	if (lgui::begin_window("Area", Rect::from_pos_size({}, {500, 500}), 0))
 	{
-		lgui::Panel* panel = lgui::get_current_panel();
-		lgui::Painter& painter = panel->get_painter();
-
-		// The whole area
-		Rect rect = panel->content;
-
-		v2 base_cell_size = v2{100, 10};
-		v2 cell_size = base_cell_size * area.scale;
-		v2 pos = area.pos * cell_size;
-		v2 pos_screen_offset = v2{fmodf(pos.x / cell_size.x, 1.f), fmodf(pos.y / cell_size.y, 1.f)} * cell_size;
-
-		float width_snap = 0.125f;
-
-		// Style
-		lgui::Color line_color = {0, 0, 0, 1};
-		lgui::Color note_outline_color =  COLOR_T(1.f, 0.2f, 0.2f, 0.7f);
-		lgui::Color note_top_color =  COLOR_T(1.f, 0.2f, 0.2f, 1.f);
-		lgui::Color note_bottom_color =  COLOR_T(1.f, 0.2f, 0.2f, 0.7f);
-
-
-		// Draw lines
-		for (float x = -pos_screen_offset.x; x < rect.width(); x += cell_size.x)
+		lgui::draw_hook(lgui::pc(1.f, 1.f), &area, [](lgui::Box* box, lgui::Painter& painter, Rect rect) 
 		{
-			float screen_x = rect.top_left.x + x;
-			Rect line = Rect::from_pos_size({ screen_x, rect.top_left.y }, { 1, rect.height() });
-			painter.draw_rectangle(line, line_color);
-		}
-		for (float y = -pos_screen_offset.y; y < rect.height(); y += cell_size.y)
-		{
-			float screen_y = rect.top_left.y + y;
-			Rect line = Rect::from_pos_size({ rect.top_left.x, screen_y }, { rect.width(), 1 });
-			painter.draw_rectangle(line, line_color);
-		}
+			NoteArea& area = *((NoteArea*)box->draw_user_data);
+
+			v2 base_cell_size = v2{100, 10};
+			v2 cell_size = base_cell_size * area.scale;
+			v2 pos = area.pos * cell_size;
+			v2 pos_screen_offset = v2{fmodf(pos.x / cell_size.x, 1.f), fmodf(pos.y / cell_size.y, 1.f)} * cell_size;
+
+			float width_snap = 0.125f;
+
+			// Style
+			lgui::Color line_color = {0, 0, 0, 1};
+			lgui::Color note_outline_color =  COLOR_T(1.f, 0.2f, 0.2f, 0.7f);
+			lgui::Color note_top_color =  COLOR_T(1.f, 0.2f, 0.2f, 1.f);
+			lgui::Color note_bottom_color =  COLOR_T(1.f, 0.2f, 0.2f, 0.7f);
 
 
-		lgui::InputResult rect_response = lgui::handle_element_input(rect, lgui::get_id("background"), true);
-		if (rect_response.dragging)
-		{
-			area.pos -= rect_response.drag_delta / cell_size;
-			area.pos.x = LGUI_MAX(area.pos.x, 0.f);
-			area.pos.y = LGUI_MAX(area.pos.y, 0.f);
-		}
-
-		if (IsKeyPressed(KEY_Q))
-		{
-			area.scale.x -= 0.2f;
-			area.scale.x = LGUI_MAX(area.scale.x, 0.1f);
-		}
-		if (IsKeyPressed(KEY_E))
-		{
-			area.scale.x += 0.2f;
-		}
-		if (IsKeyPressed(KEY_A))
-		{
-			area.scale.y -= 0.2f;
-			area.scale.y = LGUI_MAX(area.scale.y, 0.1f);
-		}
-		if (IsKeyPressed(KEY_D))
-		{
-			area.scale.y += 0.2f;
-		}
-
-		for (size_t i = 0; i < area.notes.size(); ++i)
-		{
-			auto& it = area.notes[i];
-
-			Rect note_rect = Rect::from_pos_size(rect.top_left - pos + cell_size * v2{it.x, (float)it.tone},
-				v2{it.width * cell_size.x, cell_size.y});
-			note_rect.cut_bottom(-1);
-
-			painter.draw_rectangle(note_rect, note_outline_color);
-			painter.draw_rectangle_gradient(note_rect.pad(1), note_top_color, note_top_color, note_bottom_color, note_bottom_color);
-
-			lgui::push_id(it.id);
-
-			Rect right_side = note_rect.cut_right(5);
-			lgui::InputResult input_main = lgui::handle_element_input(note_rect, lgui::get_id("main"), true);
-			lgui::InputResult input_right = lgui::handle_element_input(right_side, lgui::get_id("right"), true);
-
-			if (input_main.pressed)
+			// Draw lines
+			for (float x = -pos_screen_offset.x; x < rect.width(); x += cell_size.x)
 			{
-				area.note_on_press = it;
-				area.mouse_on_press = (lgui::mouse_pos() - rect.top_left + pos) / cell_size;
+				float screen_x = rect.top_left.x + x;
+				Rect line = Rect::from_pos_size({ screen_x, rect.top_left.y }, { 1, rect.height() });
+				painter.draw_rectangle(line, line_color);
 			}
-			if (input_main.dragging)
+			for (float y = -pos_screen_offset.y; y < rect.height(); y += cell_size.y)
 			{
-				float x_offset = area.note_on_press.x - area.mouse_on_press.x;
+				float screen_y = rect.top_left.y + y;
+				Rect line = Rect::from_pos_size({ rect.top_left.x, screen_y }, { rect.width(), 1 });
+				painter.draw_rectangle(line, line_color);
+			}
+
+
+			lgui::InputResult rect_response = lgui::handle_element_input(rect, lgui::get_id("background"), true);
+			if (rect_response.dragging)
+			{
+				area.pos -= rect_response.drag_delta / cell_size;
+				area.pos.x = LGUI_MAX(area.pos.x, 0.f);
+				area.pos.y = LGUI_MAX(area.pos.y, 0.f);
+			}
+
+			
+			v2 scroll = lgui::mouse_scroll();
+			bool hover = lgui::is_mouse_overlapping(rect);
+			bool shift = lgui::key_down(lgui::Key::LeftShift) || lgui::key_down(lgui::Key::LeftShift);
+			if (scroll.y < 0.f && hover && shift)
+			{
+				area.scale.x -= 0.2f;
+				area.scale.x = LGUI_MAX(area.scale.x, 0.1f);
+			}
+			if (scroll.y > 0.f && hover && shift)
+			{
+				area.scale.x += 0.2f;
+			}
+			if (scroll.y < 0.f && hover && !shift)
+			{
+				area.scale.y -= 0.2f;
+				area.scale.y = LGUI_MAX(area.scale.y, 0.1f);
+			}
+			if (scroll.y > 0.f && hover && !shift)
+			{
+				area.scale.y += 0.2f;
+			}
+
+			for (size_t i = 0; i < area.notes.size(); ++i)
+			{
+				auto& it = area.notes[i];
+
+				Rect note_rect = Rect::from_pos_size(rect.top_left - pos + cell_size * v2{it.x, (float)it.tone},
+					v2{it.width * cell_size.x, cell_size.y});
+				note_rect.cut_bottom(-1);
+
+				painter.draw_rectangle(note_rect, note_outline_color);
+				painter.draw_rectangle_gradient(note_rect.pad(1), note_top_color, note_top_color, note_bottom_color, note_bottom_color);
+
+				lgui::push_id(it.id);
+
+				Rect right_side = note_rect.cut_right(5);
+				lgui::InputResult input_main = lgui::handle_element_input(note_rect, lgui::get_id("main"), true);
+				lgui::InputResult input_right = lgui::handle_element_input(right_side, lgui::get_id("right"), true);
+
+				if (input_main.pressed)
+				{
+					area.note_on_press = it;
+					area.mouse_on_press = (lgui::mouse_pos() - rect.top_left + pos) / cell_size;
+				}
+				if (input_main.dragging)
+				{
+					float x_offset = area.note_on_press.x - area.mouse_on_press.x;
+					v2 mouse_local = (lgui::mouse_pos() - rect.top_left + pos) / cell_size;
+					float mouse_x = mouse_local.x + x_offset;
+					it.x = mouse_x - fmodf(mouse_x, width_snap);
+					it.tone = (int)mouse_local.y;
+				}
+				if (input_right.dragging)
+				{
+					v2 mouse_local = (lgui::mouse_pos() - rect.top_left + pos) / cell_size;
+					it.width = mouse_local.x - fmodf(mouse_local.x, width_snap) - it.x;
+					it.width = LGUI_MAX(it.width, 0.05f);
+				}
+				if (input_main.clicked || input_right.clicked)
+				{
+					// Must be done last so it doesn't invalidate the pointer
+					area.notes.erase(area.notes.begin() + i);
+					--i;
+				}
+
+				lgui::pop_id();
+			}
+
+			if (rect_response.clicked)
+			{
 				v2 mouse_local = (lgui::mouse_pos() - rect.top_left + pos) / cell_size;
-				float mouse_x = mouse_local.x + x_offset;
-				it.x = mouse_x - fmodf(mouse_x, width_snap);
-				it.tone = (int)mouse_local.y;
-			}
-			if (input_right.dragging)
-			{
-				v2 mouse_local = (lgui::mouse_pos() - rect.top_left + pos) / cell_size;
-				it.width = mouse_local.x - fmodf(mouse_local.x, width_snap) - it.x;
-				it.width = LGUI_MAX(it.width, 0.05f);
-			}
-			if (input_main.clicked || input_right.clicked)
-			{
-				// Must be done last so it doesn't invalidate the pointer
-				area.notes.erase(area.notes.begin() + i);
-				--i;
+				Note note{};
+				note.x = mouse_local.x;
+				note.width = 0.25f;
+				note.tone = (int)mouse_local.y;
+				++area.id_counter;
+				note.id = area.id_counter;
+				area.notes.push_back(note);
 			}
 
-			lgui::pop_id();
-		}
-
-		if (rect_response.clicked)
-		{
-			v2 mouse_local = (lgui::mouse_pos() - rect.top_left + pos) / cell_size;
-			Note note{};
-			note.x = mouse_local.x;
-			note.width = 0.25f;
-			note.tone = (int)mouse_local.y;
-			++area.id_counter;
-			note.id = area.id_counter;
-			area.notes.push_back(note);
-		}
-
-		lgui::end_panel();
+		});
+		lgui::end_window();
 	}
 }
 
+#if 0
 extern void ast_init();
 extern void ast_update(lgui::Context* context);
+#endif
 
 struct LayoutTest {
 	int h_align;
 	int v_align;
 	bool horizontal;
+	bool full_width;
 	bool enable;
 	int layout_count;
 };
 
 void layout_test(LayoutTest& test)
 {
-	if (lgui::begin_panel("Layout test 2", Rect::from_pos_size({100, 100}, { 400, 400 }), lgui::PanelFlag_TitleBar))
+	if (lgui::begin_window("Layout Test", Rect::from_pos_size({110, 100}, {400, 400}), 0))
 	{
 		LGUI_H_LAYOUT(-1, 0)
 		{
@@ -247,15 +253,24 @@ void layout_test(LayoutTest& test)
 		LGUI_H_LAYOUT(-1, 0)
 		{
 			lgui::text("Vertical alignment: ");
-			lgui::radio_button("valign1", -1, &test.v_align);
-			lgui::radio_button("valign2", 0, &test.v_align);
-			lgui::radio_button("valign3", 1, &test.v_align);
+			LGUI_V_LAYOUT(0, 0)
+			{
+				lgui::radio_button("valign1", -1, &test.v_align);
+				lgui::radio_button("valign2", 0, &test.v_align);
+				lgui::radio_button("valign3", 1, &test.v_align);
+			}
 		}
 
 		LGUI_H_LAYOUT(-1, 0)
 		{
 			lgui::checkbox("horizontal", &test.horizontal);
 			lgui::text("Horizontal");
+		}
+
+		LGUI_H_LAYOUT(-1, 0)
+		{
+			lgui::checkbox("full_width", &test.full_width);
+			lgui::text("Full width (percentage)");
 		}
 
 		LGUI_H_LAYOUT(-1, 0)
@@ -280,6 +295,8 @@ void layout_test(LayoutTest& test)
 			lgui::text("Count");
 		}
 
+		//lgui::text("SPAM SPAM SPAM SPAM SPAM SPAM SPAM SPAM SPAM SPAM SPAM SPAM SPAM SPAM SPAM SPAM SPAM");
+
 		lgui::separator();
 
 		bool empty_bool{};
@@ -289,44 +306,470 @@ void layout_test(LayoutTest& test)
 		{
 			//lgui::layout_vertical(-1, -1);
 
+			lgui::Size size_x = lgui::fit();
+			if (test.full_width)
+			{
+				size_x = lgui::pc(1.f);
+			}
+
 			if (test.horizontal)
 			{
-				lgui::layout_horizontal(test.h_align, test.v_align, {lgui::pc(1.f), lgui::px(200.f)});
+				//lgui::layout_horizontal(test.h_align, test.v_align, {size_x, lgui::px(150.f)});
+				lgui::layout_horizontal(test.h_align, test.v_align, {size_x, lgui::rem(1.f)});
 			}
 			else
 			{
-				lgui::layout_vertical(test.h_align, test.v_align, {lgui::pc(1.f), lgui::px(200.f)});
+				//lgui::layout_vertical(test.h_align, test.v_align, {size_x, lgui::px(150.f)});
+				lgui::layout_vertical(test.h_align, test.v_align, {size_x, lgui::rem(1.f)});
 			}
+			lgui::get_box()->set_rectangle({1, 1, 0, 1});
 
+			for (int i = 0; i < test.layout_count + 1; ++i)
 			{
+				lgui::push_id(i);
+
 				lgui::button("some text");
 				lgui::radio_button("radio", 0, &emtpy_int);
 				lgui::checkbox("check", &empty_bool);
 
+				lgui::pop_id();
+			}
+
+			if (test.horizontal)
+			{
+				lgui::Box* box = lgui::make_box("boox", {lgui::px(20.f), lgui::pc(1.f)}, 0);
+				box->set_rectangle({ 1, 0, 0, 1 });
+			}
+			else
+			{
 				lgui::Box* box = lgui::make_box("boox", {lgui::pc(1.f), lgui::px(20.f)}, 0);
 				box->set_rectangle({ 1, 0, 0, 1 });
 			}
 
+
 			lgui::layout_end();
 
-
 			//lgui::text("lalalalalalalal");
-
 			//lgui::layout_end();
 		}
 
-		lgui::end_panel();
+		lgui::end_window();
 	}
+}
+
+struct WidgetTest {
+	bool check;
+	int radio;
+	char string[16];
+};
+
+void widget_test(WidgetTest& test)
+{
+	if (lgui::begin_window("Widget Test", Rect::from_pos_size({200.f, 200.f}, {400.f, 650.f}), 0))
+	{
+		LGUI_H_LAYOUT(0, 0, {lgui::pc(1.f), lgui::fit()})
+		{
+			lgui::checkbox("check", &test.check);
+			lgui::spacer(2.f);
+			lgui::text("Checkbox");
+		}
+
+		lgui::separator();
+		LGUI_V_LAYOUT(0, 0, {lgui::pc(1.f), lgui::fit()})
+		{
+			lgui::text("Radio buttons");
+			LGUI_H_LAYOUT(0, 0)
+			{
+				lgui::radio_button("radio1", 1, &test.radio);
+				lgui::spacer(2.f);
+				lgui::radio_button("radio2", 2, &test.radio);
+				lgui::spacer(2.f);
+				lgui::radio_button("radio3", 3, &test.radio);
+			}
+		}
+
+		lgui::separator();
+		LGUI_H_LAYOUT(0, 0, {lgui::pc(1.f), lgui::fit()})
+		{
+			if (lgui::button("Button!").clicked)
+			{
+				printf("Clicked!\n");
+			}
+		}
+
+		lgui::separator();
+		LGUI_H_LAYOUT(0, 0, {lgui::pc(1.f), lgui::fit()})
+		{
+			lgui::text("Scroll areas (layouts)");
+		}
+		lgui::spacer(4.f);
+		LGUI_H_LAYOUT(-1, -1, {lgui::pc(1.f), lgui::px(200.f)})
+		{
+			lgui::u32 flags = lgui::BoxFlag_Clip | lgui::BoxFlag_ScrollY;
+
+			{
+				lgui::Box* layout = lgui::layout_vertical(-1, -1, { lgui::rem(0.5f), lgui::pc(1.f) }, flags);
+				layout->set_rectangle({0.2f, 0.2f, 0.2f, 1.f});
+				layout->padding = {2.f, 2.f};
+
+				char buffer[16];
+				for (int i = 0; i < 20; ++i)
+				{
+					snprintf(buffer, 16, "text %d", i);
+					lgui::text(buffer);
+				}
+
+				lgui::layout_end();
+			}
+
+			lgui::separator();
+
+			{
+				lgui::Box* layout = lgui::layout_vertical(-1, -1, { lgui::rem(0.5f), lgui::pc(1.f) }, flags);
+				layout->set_rectangle({0.2f, 0.2f, 0.2f, 1.f});
+				layout->padding = {2.f, 2.f};
+
+				char buffer[16];
+				for (int i = 0; i < 20; ++i)
+				{
+					snprintf(buffer, 16, "text %d", i);
+					lgui::text(buffer);
+				}
+
+				lgui::layout_end();
+			}
+		}
+		
+		lgui::separator();
+		if (lgui::begin_fancy_collapse_header("Collapsible header"))
+		{
+			lgui::text("With animation");
+			lgui::text("1");
+			lgui::text("2");
+			lgui::text("3");
+			lgui::text("4");
+			lgui::end_fancy_collapse_header();
+		}
+
+		lgui::separator();
+		if (lgui::begin_tree_node("Tree node"))
+		{
+			if (lgui::begin_tree_node("With animation"))
+			{
+				lgui::text("Hello :)");
+				if (lgui::begin_tree_node("More content"))
+				{
+					lgui::text("Hi");
+					lgui::end_tree_node();
+				}
+				lgui::end_tree_node();
+			}
+			if (lgui::begin_tree_node("Another"))
+			{
+				lgui::text("Goodbye");
+				lgui::end_tree_node();
+			}
+			lgui::end_tree_node();
+		}
+
+		lgui::end_window();
+	}
+}
+
+void app_test()
+{
+	lgui::Context* context = lgui::get_context();
+
+	Rect full_rect = Rect::from_pos_size({}, context->app_window_size);
+	Rect menu_bar = full_rect.cut_top(25.f);
+	Rect left_window = full_rect.cut_left(full_rect.width() * 0.3f);
+	lgui::u32 bg_flags = lgui::PanelFlag_AlwaysResetRect | lgui::PanelFlag_AlwaysBackground | 
+		lgui::PanelFlag_NoTitleBar;
+	
+	if (lgui::begin_window("Menu Bar", menu_bar, bg_flags))
+	{
+		if (lgui::button("File").clicked)
+		{
+
+		}
+		lgui::end_window();
+	}
+
+	if (lgui::begin_window("Left Window", left_window, bg_flags))
+	{
+		lgui::text("hello world");
+		lgui::end_window();
+	}
+}
+
+void misc_test()
+{
+	static int h_count = 0;
+	static int v_count = 0;
+
+	if (lgui::begin_window("Growing Window", Rect::from_pos_size({300, 200}, {1, 1}), 
+		lgui::PanelFlag_AutoResizeHorizontal | lgui::PanelFlag_AutoResizeVertical))
+	{
+		LGUI_H_LAYOUT(-1, 0)
+		{
+			for (int i = 0; i < h_count + 1; ++i)
+			{
+				lgui::text("Horizontal");
+			}
+		}
+		LGUI_V_LAYOUT(-1, 0)
+		{
+			for (int i = 0; i < v_count + 1; ++i)
+			{
+				lgui::text("Vertical");
+			}
+		}
+		lgui::end_window();
+	}
+
+	if (lgui::begin_window("Grow", Rect::from_pos_size({300, 200}, {1, 1}), 
+		lgui::PanelFlag_AutoResizeHorizontal | lgui::PanelFlag_AutoResizeVertical))
+	{
+		LGUI_H_LAYOUT(-1, 0)
+		{
+			if (lgui::button("-").clicked)
+			{
+				h_count = LGUI_MAX(h_count - 1, 0);
+			}
+			lgui::spacer(2.f);
+			if (lgui::button("+").clicked)
+			{
+				++h_count;
+			}
+			lgui::spacer(2.f);
+
+			char buffer[32];
+			snprintf(buffer, 32, "Horizontal element count (%d)", h_count);
+			lgui::text(buffer);
+		}
+		lgui::spacer(2.f);
+		LGUI_H_LAYOUT(-1, 0)
+		{
+			if (lgui::button("-").clicked)
+			{
+				v_count = LGUI_MAX(v_count - 1, 0);
+			}
+			lgui::spacer(2.f);
+			if (lgui::button("+").clicked)
+			{
+				++v_count;
+			}
+			lgui::spacer(2.f);
+
+			char buffer[32];
+			snprintf(buffer, 32, "Vertical element count (%d)", v_count);
+			lgui::text(buffer);
+		}
+		lgui::end_window();
+	}
+
+	if (lgui::begin_window("Scroll Test", Rect::from_pos_size({300, 200}, {150, 200}), 0))
+	{
+		lgui::text("hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello");
+		for (int i = 0; i < 15; ++i)
+		{
+			char buff[16];
+			snprintf(buff, 16, "hello %d", i);
+			lgui::text(buff);
+		}
+		lgui::end_window();
+	}
+}
+
+struct ConsoleStr {
+	char str[32];
+};
+
+static std::vector<ConsoleStr> _fake_console;
+
+void fake_console()
+{
+	if (lgui::begin_window("Console", v2{150.f, 100.f}))
+	{
+		for (auto& it : _fake_console)
+		{
+			lgui::text(it.str);
+		}
+		lgui::end_window();
+	}
+}
+
+void print(const char* format, ...)
+{
+	va_list args;
+	va_start(args, format);
+
+	ConsoleStr s{};
+	vsnprintf(s.str, 32, format, args);
+	_fake_console.push_back(s);
+
+	va_end(args);
+}
+
+void presentation()
+{
+#if 0
+	if (lgui::begin_window("My Window", v2{100.f, 100.f}))
+	{
+		if (lgui::button("Click me!").clicked)
+		{
+			printf("Click\n");
+		}
+		lgui::end_window();
+	}
+#endif
+
+#if 0
+	static int value = 0;
+	if (lgui::begin_window("My Window", v2{200.f, 150.f}))
+	{
+		lgui::textf("Radio buttons (value = %d)", value);
+		lgui::radio_button("Button 1", 1, &value);
+		lgui::radio_button("Button 2", 2, &value);
+		lgui::radio_button("Button 3", 3, &value);
+		lgui::end_window();
+	}
+#endif
+
+#if 0
+	static int value = 0;
+	if (lgui::begin_window("My Window", v2{120.f, 100.f}))
+	{
+		lgui::textf("value = %d", value);
+		if (lgui::button("Increase value").clicked)
+		{
+			value += 1;
+		}
+		lgui::textf("value = %d", value);
+		lgui::end_window();
+	}
+#endif
+
+#if 0
+	if (lgui::begin_window("My Window", v2{100.f, 100.f}))
+	{
+		{
+			lgui::push_id(1);
+			if (lgui::button("Button").clicked)
+			{
+				print("Result 1");
+			}
+			lgui::pop_id();
+		}
+		lgui::spacer(2.f);
+		{
+			lgui::push_id(2);
+			if (lgui::button("Button").clicked)
+			{
+				print("Result 2");
+			}
+			lgui::pop_id();
+		}
+		lgui::end_window();
+	}
+#endif
+
+#if 0
+	if (lgui::begin_window("My Window", v2{100.f, 100.f}))
+	{
+		if (lgui::button("Button##1").clicked)
+		{
+			print("Result 1");
+		}
+
+		lgui::spacer(2.f);
+		if (lgui::button("Button##2").clicked)
+		{
+			print("Result 2");
+		}
+
+		lgui::end_window();
+	}
+
+	if (lgui::begin_window("ID Tree", v2{200.f, 200.f}))
+	{
+		if (lgui::begin_tree_node("\"My Window\""))
+		{
+			if (lgui::begin_tree_node("1"))
+			{
+				lgui::text("\"Button\"");
+				lgui::end_tree_node();
+			}
+			if (lgui::begin_tree_node("2"))
+			{
+				lgui::text("\"Button\"");
+				lgui::end_tree_node();
+			}
+			lgui::end_tree_node();
+		}
+
+		lgui::end_window();
+	}
+#endif
+
+#if 0
+	if (lgui::begin_window("My Window", v2{1.f, 1.f},
+			lgui::PanelFlag_AutoResizeHorizontal | lgui::PanelFlag_AutoResizeVertical |
+			lgui::PanelFlag_NoTitleBar))
+	{
+		lgui::text("a");
+		lgui::end_window();
+	}
+#endif
+
+	static int vert_count = 1;
+	if (lgui::begin_window("Painter", v2{200.f, 300.f}))
+	{
+		LGUI_V_LAYOUT(0, -1, {lgui::pc(1.f), lgui::fit()})
+		{
+			LGUI_H_LAYOUT(-1, -1)
+			{
+				if (lgui::button("-").clicked)
+				{
+					vert_count -= 1;
+					vert_count = LGUI_MAX(vert_count, 1);
+				}
+				lgui::spacer(2.f);
+				if (lgui::button("+").clicked)
+				{
+					vert_count += 1;
+				}
+				lgui::spacer(2.f);
+				lgui::textf("Vertex count (%d)", vert_count);
+			}
+			lgui::separator();
+			lgui::draw_hook(lgui::px(150.f, 150.f), [](lgui::Box* box, lgui::Painter& painter, Rect rect)
+			{
+				painter.draw_circle(rect.center(), 15.f, 180.f, {1, 0, 0, 1});
+			});
+		}
+		lgui::end_window();
+	}
+
 }
 
 int main()
 {
 	const int screenWidth = 800;
 	const int screenHeight = 800;
+	bool limit_framerate = true;
 
 	InitWindow(screenWidth, screenHeight, "LGUI Example");
-	SetWindowState(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
-	//SetTargetFPS(60);
+
+	if (limit_framerate)
+	{
+		SetWindowState(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
+		//SetTargetFPS(60);
+	}
+	else
+	{
+		SetWindowState(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
+	}
 
 	lgui::Context* context = lgui::init();
 	context->app_window_size = {(f32)screenWidth, (f32)screenHeight};
@@ -339,7 +782,7 @@ int main()
 	lgui::Style style{};
 	style.default_font = font;
 	style.line_padding = 4.f;
-	style.default_layout_spacing = 2.f;
+	style.window_content_padding = 4.f;
 	style.window_outline = GREY(0.15f);
 	style.window_background = GREY(0.3f);
 	style.window_title_background = GREY(0.2f);
@@ -360,27 +803,11 @@ int main()
 	style.separator_spacing = 20.f;
 	lgui::push_style(style);
 
-	bool test_value = false;
-	bool test_value2 = false;
-	int test_radio_value = 0;
-	float test_drag_value = 0;
-	float test_text_fit_value = 100;
-	char text_buffer[32]{};
-	size_t text_buffer_size = 32;
-
-	bool test_layout_reverse = false;
-	bool test_layout_horizontal = false;
-	int test_layout_h_align = -1;
-	int test_layout_v_align = -1;
-	bool test_layout_enable = false;
-	int test_layout_count = 0;
-
 	NoteArea area{};
 	area.scale = {1, 1};
 
 	LayoutTest layout_t{};
-
-	ast_init();
+	WidgetTest widget_t{};
 
 	while (!WindowShouldClose())
 	{
@@ -390,8 +817,6 @@ int main()
 		}
 
 		BeginDrawing();
-
-		//ClearBackground(RAYWHITE);
 		ClearBackground(SKYBLUE);
 
 		rlDisableBackfaceCulling();
@@ -399,340 +824,27 @@ int main()
 		// Enable for frame by frame
 		//if (IsKeyPressed(KEY_ENTER) || IsKeyDown(KEY_RIGHT_SHIFT))
 		{
+			while (int codepoint = GetCharPressed())
+			{
+				lgui::input_register_char_press(codepoint);
+			}
+			for (int i = 0; i < lgui::Key::MAX; ++i)
+			{
+				lgui::input_register_key_down((lgui::u32)i, IsKeyDown(i));
+			}
+
 			lgui::begin_frame(GetFrameTime());
 			context->app_window_size = {(f32)GetScreenWidth(), (f32)GetScreenHeight()};
 
 			layout_test(layout_t);
-
-			Rect full_rect = Rect::from_pos_size({}, context->app_window_size);
-			Rect menu_bar = full_rect.cut_top(25.f);
-			Rect left_window = full_rect.cut_left(full_rect.width() * 0.3f);
+			widget_test(widget_t);
+			area_test(context, area);
+			misc_test();
+			app_test();
 			
-			if (lgui::begin_panel("Menu Bar", menu_bar, lgui::PanelFlag_AlwaysResetRect))
-			{
-				if (lgui::button("File").clicked)
-				{
+			presentation();
+			fake_console();
 
-				}
-				lgui::end_panel();
-			}
-
-			if (lgui::begin_panel("Left Window", left_window, lgui::PanelFlag_AlwaysResetRect))
-			{
-				lgui::text("hello world");
-				lgui::end_panel();
-			}
-			
-#if 0
-			if (lgui::begin_panel("Box test", lgui::Rect::from_pos_size(lgui::v2{250, 250}, lgui::v2{450, 450}), 0))
-			{
-				LGUI_H_LAYOUT(-1, -1, {lgui::pc(1.f), lgui::fit()})
-				{
-					LGUI_V_LAYOUT(-1, -1)
-					{
-						if (lgui::button("button 1").clicked) { printf("Clicky!\n"); }
-						lgui::spacer(10);
-						if (lgui::button("button 2 23423423").clicked) { printf("Clicky!\n"); }
-						lgui::spacer(10);
-						if (lgui::button("button 3").clicked) { printf("Clicky!\n"); }
-
-						lgui::spacer(10);
-						lgui::radio_button("the option", 1, &test_radio_value);
-
-						lgui::separator();
-
-						if (lgui::begin_fancy_collapse_header("Hello sir"))
-						{
-							LGUI_H_LAYOUT(-1, 0)
-							{
-								lgui::radio_button("the option2", 2, &test_radio_value);
-								lgui::spacer(3.f);
-								lgui::text("Option 2");
-							}
-							lgui::spacer(2);
-
-							for (int i = 0; i < 4; ++i)
-							{
-								LGUI_H_LAYOUT(-1, 0)
-								{
-									lgui::radio_button("the option3", 3, &test_radio_value);
-									lgui::spacer(3.f);
-									lgui::text("Option 3", true);
-								}
-							}
-
-							lgui::spacer(2);
-							lgui::end_fancy_collapse_header();
-						}
-
-						if (lgui::begin_tree_node("root"))
-						{
-							if (lgui::begin_tree_node("Player"))
-							{
-								lgui::text("hello there");
-								lgui::end_tree_node();
-							}
-							if (lgui::begin_tree_node("Enemy"))
-							{
-								lgui::text("mememe");
-								lgui::end_tree_node();
-							}
-							lgui::end_tree_node();
-						}
-
-						lgui::spacer(3.f);
-						LGUI_H_LAYOUT(-1, 0)
-						{
-							lgui::checkbox("hello checkbox", &test_value);
-							lgui::spacer(3.f);
-							lgui::text("Check this out");
-						}
-						lgui::text("hello");
-					}
-
-					//lgui::spacer(10);
-
-					/*
-					LGUI_V_LAYOUT(-1, -1)
-					{
-						if (lgui::button("button 4").clicked) { printf("Clicky!\n"); }
-						lgui::spacer(10);
-						if (lgui::button("button 5").clicked) { printf("Clicky!\n"); }
-
-						//for (int i = 0; i < 1000; ++i) // Heavy benchmark
-						for (int i = 0; i < 100; ++i)
-						{
-							LGUI_H_LAYOUT(-1, -1)
-							{
-								lgui::text("Cool thingy:");
-								lgui::spacer(4.f);
-								if (lgui::button("button 4").clicked) { printf("Clicky!\n"); }
-							}
-						}
-					}*/
-
-				}
-
-				lgui::end_panel();
-			}
-#endif
-
-#if 0
-			/*
-			// Stress test
-			for (int i = 0; i < 30; ++i)
-			{
-				lgui::push_id(i);
-				if (lgui::begin_panel("My Window", lgui::Rect::from_pos_size(lgui::v2{(f32)i * 2, (f32)i * 2}, lgui::v2{100, 100}), 0))
-				{
-					lgui::end_panel();
-				}
-				lgui::pop_id();
-			}
-			*/
-
-			if (lgui::begin_panel("Box test", lgui::Rect::from_pos_size(lgui::v2{250, 250}, lgui::v2{450, 450}), 0))
-			{
-				if (lgui::layout_line(-1))
-				{
-					lgui::checkbox("Box reverse", &test_layout_reverse);
-					lgui::text("Box reverse");
-					lgui::end_layout();
-				}
-				if (lgui::begin_fancy_collapse_header("hello sir"))
-				{
-					LGUI_H_LAYOUT(-1, 0) { lgui::text("hello 1"); lgui::button("BUTTON"); }
-					LGUI_H_LAYOUT(-1, 0) { lgui::text("hello 2"); lgui::button("BUTTON"); }
-					LGUI_H_LAYOUT(-1, 0) { lgui::text("hello 3"); lgui::checkbox("BUTTON", &test_value); }
-					LGUI_H_LAYOUT(-1, 0) { lgui::text("hello 4"); lgui::button("BUTTON"); }
-					LGUI_H_LAYOUT(-1, 0) { lgui::text("hello 5"); lgui::button("BUTTON"); }
-
-					for (int i = 0; i < 100; ++i)
-					{
-						LGUI_H_LAYOUT(-1, 0) { lgui::text("hello 1"); lgui::button("BUTTON"); }
-						//lgui::text("hello 1"); lgui::button("BUTTON"); 
-					}
-
-					lgui::end_fancy_collapse_header();
-				}
-				if (lgui::layout_line(-1))
-				{
-					lgui::checkbox("Box horizontal", &test_layout_horizontal);
-					lgui::text("Box horizontal");
-					lgui::end_layout();
-				}
-				if (lgui::layout_line(-1))
-				{
-					lgui::checkbox("layout enable", &test_layout_enable);
-					lgui::text("Box enable");
-					lgui::end_layout();
-				}
-				if (lgui::layout_line(-1))
-				{
-					if (lgui::button("-").clicked && test_layout_count > 0)
-					{
-						--test_layout_count;
-					}
-					if (lgui::button("+").clicked)
-					{
-						++test_layout_count;
-					}
-
-					const int buffer_size = 32;
-					char buffer[buffer_size]{};
-					snprintf(buffer, buffer_size, "Box count (%d)", test_layout_count);
-					lgui::text(buffer);
-
-					lgui::end_layout();
-				}
-
-				if (lgui::layout_line(-1))
-				{
-					lgui::text("Box h_align: ");
-					lgui::radio_button("Box h_align -1", -1, &test_layout_h_align);
-					lgui::radio_button("Box h_align 0", 0, &test_layout_h_align);
-					lgui::radio_button("Box h_align 1", 1, &test_layout_h_align);
-
-					/*
-					{
-						Rect rect = lgui::layout_next({100, 100});
-						lgui::Painter& painter = lgui::get_painter();
-						f32 c[4] = {10.f, 10.f, 10.f, 10.f};
-						painter.draw_rounded_rectangle(rect, c, {0, 1, 0, 0.5f});
-					}
-					*/
-
-					lgui::end_layout();
-				}
-				if (lgui::layout_line(-1))
-				{
-					lgui::text("Box v_align: ");
-					lgui::radio_button("Box v_align -1", -1, &test_layout_v_align);
-					lgui::radio_button("Box v_align 0", 0, &test_layout_v_align);
-					lgui::radio_button("Box v_align 1", 1, &test_layout_v_align);
-					lgui::end_layout();
-				}
-
-				lgui::separator();
-
-				if (test_layout_enable)
-				{
-					lgui::set_next_layout_background(GREY(0.4f), GREY(0.6f), 2.f);
-					//if (lgui::layout_unknown(10, { lgui::layout_width(), 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f, {8.f, 8.f}))
-					//if (lgui::layout_unknown(10, { 0.f, 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f, {8.f, 8.f}))
-					if (lgui::layout_unknown(10, { lgui::layout_width(), 0.f }, test_layout_horizontal, test_layout_reverse, test_layout_h_align, test_layout_v_align, 2.f, { 8.f, 8.f }, lgui::BoxFlag_FixedH))
-					{
-						if (lgui::button("Button1").clicked)
-						{
-							printf("Button 1 pressed!\n");
-						}
-						if (lgui::button("Button2").clicked)
-						{
-							printf("Button 2 pressed!\n");
-						}
-						if (lgui::button("Button3").clicked)
-						{
-							printf("Button 3 pressed!\n");
-						}
-						/*
-						LGUI_V_LAYOUT(-1)
-						{
-							lgui::checkbox("Button2", &test_value);
-							lgui::radio_button("Button3", 1, &test_radio_value);
-
-							for (int i = 0; i < test_layout_count; ++i)
-							{
-								lgui::push_id(i);
-
-								if (lgui::button("Button1").clicked)
-								{
-									printf("Button 1 pressed!\n");
-								}
-								lgui::radio_button("Button3", 1, &test_radio_value);
-
-								lgui::pop_id();
-							}
-						}
-						*/
-
-
-						lgui::end_layout();
-					}
-				}
-
-				lgui::end_panel();
-			}
-
-			/*
-			if (lgui::begin_panel("My Window", lgui::Rect::from_pos_size(lgui::v2{100, 100}, lgui::v2{300, 300}), 0))
-			{
-				if (lgui::button("Button1").clicked)
-				{
-					printf("Button 1 pressed!\n");
-				}
-
-				if (lgui::button("Button2").clicked)
-				{
-					printf("Button 2 pressed!\n");
-				}
-
-				lgui::checkbox("Checkbox", &test_value);
-
-				lgui::end_panel();
-			}
-			*/
-
-
-			if (false && lgui::begin_panel("Other Window", lgui::Rect::from_pos_size(lgui::v2{300, 100}, lgui::v2{300, 500}), 0))
-			{
-				if (lgui::button("Button3").clicked)
-				{
-					printf("Button 3 pressed!\n");
-				}
-
-				lgui::checkbox("Checkbox", &test_value2);
-
-				lgui::text("");
-				lgui::text("New elements:");
-
-				lgui::radio_button("Radio1", 1, &test_radio_value);
-				lgui::radio_button("Radio2", 2, &test_radio_value);
-				lgui::radio_button("Radio3", 3, &test_radio_value);
-
-				lgui::drag_value("drag value", &test_drag_value);
-
-				lgui::input_text(text_buffer, text_buffer_size);
-
-				// draw_text_fit test
-				if (lgui::collapse_header("draw_text_fit test"))
-				{
-					lgui::text("This is a piece of text that wraps around when reaching the end of the window, soon I will make it wrap on spaces instead of at any character ", true);
-
-					lgui::drag_value("fit value", &test_text_fit_value);
-
-					lgui::Painter& painter = lgui::get_current_panel()->get_painter();
-					//const char* text = "This is my long text that will be cut off eventually";
-					const char* text = "This is my text that will be cut off";
-					for (int i = -1; i < 2; ++i)
-					{
-						lgui::Rect rect = lgui::layout_next({ 5 + test_text_fit_value, 25 });
-						painter.draw_rectangle(rect, { 0, 0, 0, 1 });
-						painter.draw_text_fit(font, text, rect, 0, { 1, 1, 1, 1 }, i, 0);
-					}
-
-					Rect pos2 = lgui::layout_next({ 10, 10 });
-					painter.draw_text(font, text, pos2.top_left, 0, { 1, 1, 1, 1 });
-				}
-
-				lgui::end_panel();
-			}
-
-			//lgui::debug_menu();
-
-			//area_test(area);
-
-			//ast_update();
-#endif
 
 			lgui::end_frame();
 
@@ -759,15 +871,6 @@ int main()
 			rlVertex2f(w, w);
 			rlEnd();
 #endif
-
-			//rlEnableTexture(context->atlas.texture_id);
-			//DrawRectangle(10, 10, 100, 100, { 255, 200, 255, 255 });
-			//DrawTexture(context->atlas.texture_obj, 10, 10, {255, 255, 255, 255});
-			//DrawTextureV(context->atlas.texture_obj, { 10, 10 }, { 255, 255, 255, 255 });
-			//DrawTextureEx(context->atlas.texture_obj, { 10, 10 }, 0, 4, { 255, 255, 255, 255 });
-			//DrawTextureEx(context->atlas.texture_obj, { 10, 10 }, 0, 1, { 0, 0, 0, 255 });
-
-			//DrawTexture(a)
 
 		}
 

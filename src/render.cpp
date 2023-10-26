@@ -497,8 +497,6 @@ f32 Painter::draw_text(Font* font, const char* text, v2 pos, f32 spacing, Color 
 			pos + v2{x_off, 0} + glyph.pos, glyph.size, color32, glyph.uv1, glyph.uv2
 		);
 
-		
-
 		x_off += glyph.advance_x + spacing;
 	}
 
@@ -507,6 +505,7 @@ f32 Painter::draw_text(Font* font, const char* text, v2 pos, f32 spacing, Color 
 
 f32 Painter::draw_text(Font* font, const char* text, usize text_length, v2 pos, f32 spacing, Color color)
 {
+	/*
 	// Flooring the position to prevent weird rendering issues
 	pos = v2{floorf(pos.x), floorf(pos.y)};
 	f32 x_off = 0.f;
@@ -518,6 +517,58 @@ f32 Painter::draw_text(Font* font, const char* text, usize text_length, v2 pos, 
 		const Glyph& glyph = font->get_glyph(codepoint);
 
 		draw_rectangle(pos + v2{x_off, 0} + glyph.pos, glyph.size, color, glyph.uv1, glyph.uv2);
+		x_off += glyph.advance_x + spacing;
+	}
+
+	return x_off;
+	*/
+
+
+
+	// Flooring the position to prevent weird rendering issues
+	pos = v2{floorf(pos.x), floorf(pos.y)};
+	f32 x_off = 0.f;
+	const usize len = text_length;
+
+
+
+	Context* context = get_context();
+
+	ColorU32 color32;// = rgba((u8)(c.r * 255.f), (u8)(c.g * 255.f), (u8)(c.b * 255.f), (u8)(c.a * 255.f));
+	color32.as_arr[0] = (u8)(color.r * 255.f);
+	color32.as_arr[1] = (u8)(color.g * 255.f);
+	color32.as_arr[2] = (u8)(color.b * 255.f);
+	color32.as_arr[3] = (u8)(color.a * 255.f);
+
+	usize vertex_index = current_command->vertex_end;
+	//LGUI_ASSERT(vertex_index % VERTEX_SIZE_FLOATS == 0, "vertex buffer has incorrect number of floats");
+
+	f32* vertex_ptr = context->draw_buffer.vertex_buffer + vertex_index;
+
+	current_command->vertex_end += VERTEX_SIZE_FLOATS * 4 * len;
+	usize first_vertex_index = vertex_index / VERTEX_SIZE_FLOATS;
+
+	// This shouldn't actually happen if the API is used properly, because we check for space before adding vertices
+	LGUI_ASSERT(first_vertex_index + 3 < DRAW_INDEX_MAX, "The returned index is higher than the possible amount of vertices, change the draw index type");
+
+	DrawIndex* index_ptr = context->draw_buffer.index_buffer + current_command->index_end;
+
+	current_command->index_end += 6 * len;
+
+
+
+	for (usize i = 0; i < len; ++i)
+	{
+		Codepoint codepoint = text[i];
+		const Glyph& glyph = font->get_glyph(codepoint);
+
+		//draw_rectangle(pos + v2{x_off, 0} + glyph.pos, glyph.size, color, glyph.uv1, glyph.uv2);
+		draw_rect_fast(
+			vertex_ptr, i * VERTEX_SIZE_FLOATS * 4, first_vertex_index + i * 4, 
+			index_ptr, i * 6, 
+			pos + v2{x_off, 0} + glyph.pos, glyph.size, color32, glyph.uv1, glyph.uv2
+		);
+
 		x_off += glyph.advance_x + spacing;
 	}
 
@@ -776,7 +827,6 @@ void rl_render()
 		{
 			v2 clip_pos = command->clip_rect.top_left;
 			v2 clip_size = command->clip_rect.size();
-			// TEMP disable scissors
 			BeginScissorMode((int)clip_pos.x, (int)clip_pos.y, (int)clip_size.x, (int)clip_size.y);
 
 			// Has to be done after the scisor mode
