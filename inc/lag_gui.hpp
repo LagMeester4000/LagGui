@@ -755,7 +755,8 @@ enum {
 };
 
 const usize RETAINED_TABLE_SIZE = 16;
-const usize BOX_TABLE_SIZE = 64;
+//const usize BOX_TABLE_SIZE = 64;
+const usize BOX_TABLE_SIZE = 512;
 const usize PANEL_NAME_SIZE = 16;
 
 struct Panel {

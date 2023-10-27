@@ -819,54 +819,103 @@ void rl_render()
 
 	DrawBuffer& draw_buffer = context->draw_buffer;
 
+	static bool initialized = false;
+	static u32 vertex_buffer = 0;
+	static u32 index_buffer = 0;
+	static u32 vao = 0;
+	static u32 shader = 0;
+	static u32 uniform_screen_size = 0;
+	if (!initialized)
+	{
+		initialized = true;
+		
+		vertex_buffer = rlLoadVertexBuffer(draw_buffer.vertex_buffer, draw_buffer.vertex_buffer_length * sizeof(f32), true);
+		index_buffer = rlLoadVertexBufferElement(draw_buffer.index_buffer, draw_buffer.index_buffer_length * sizeof(DrawIndex), true);
+
+		const char* vertex_shader_source = 
+			"#version 330 core\n"
+			"layout (location = 0) in vec2 a_pos;\n"
+			"layout (location = 1) in vec2 a_uv;\n"
+			"layout (location = 2) in vec4 a_color;\n"
+			""
+			"out vec2 f_uv;"
+			"out vec4 f_color;"
+			""
+			"uniform vec2 u_screen_size;"
+			""
+			"void main()\n"
+			"{\n"
+			"   gl_Position = vec4(a_pos.x / u_screen_size.x * 2.0 - 1.0, (a_pos.y / u_screen_size.y * 2.0 - 1.0) * -1.0, 0.0, 1.0);\n"
+			"   f_uv = a_uv;"
+			"   f_color = a_color;"
+			"}\0";
+
+		const char* fragment_shader_source =
+			"#version 330 core\n"
+			"in vec2 f_uv;"
+			"in vec4 f_color;"
+			""
+			"out vec4 FragColor;"
+			""
+			"uniform sampler2D u_texture;"
+			""
+			"void main()"
+			"{"
+			"	FragColor = texture(u_texture, f_uv) * f_color;"
+			//"	FragColor = vec4(1.0, 0.0, 0.0, 1.0);"
+			"}\0";
+
+		shader = rlLoadShaderCode(vertex_shader_source, fragment_shader_source);
+		uniform_screen_size = rlGetLocationUniform(shader, "u_screen_size");
+
+		vao = rlLoadVertexArray();
+		LGUI_ASSERT(rlEnableVertexArray(vao), "Huh");
+		rlEnableVertexBuffer(vertex_buffer);
+		rlEnableVertexBufferElement(index_buffer);
+		rlEnableShader(shader);
+		auto stride = (2 + 2) * sizeof(f32) + 4;
+		rlSetVertexAttribute(0, 2, RL_FLOAT, false, stride, nullptr);
+		rlEnableVertexAttribute(0);
+		rlSetVertexAttribute(1, 2, RL_FLOAT, false, stride, (void*)(2 * sizeof(f32)));
+		rlEnableVertexAttribute(1);
+		rlSetVertexAttribute(2, 4, RL_UNSIGNED_BYTE, true, stride, (void*)(4 * sizeof(f32)));
+		rlEnableVertexAttribute(2);
+	}
+	else
+	{
+		// Update buffers
+		rlUpdateVertexBuffer(vertex_buffer, draw_buffer.vertex_buffer, draw_buffer.vertex_buffer_top * sizeof(f32), 0);
+		rlUpdateVertexBufferElements(index_buffer, draw_buffer.index_buffer, draw_buffer.index_buffer_top * sizeof(DrawIndex), 0);
+	}
+
 	rlDisableBackfaceCulling();
+	rlEnableScissorTest();
+
+	v2 screen_size = context->app_window_size;
+
+	rlEnableShader(shader);
+	rlSetUniform(uniform_screen_size, &screen_size, RL_SHADER_UNIFORM_VEC2, 1);
+	
+	rlActiveTextureSlot(0);
+	rlEnableTexture(context->atlas.texture_id);
+	rlEnableVertexArray(vao);
 
 	for (Panel* panel = context->first_depth_panel; panel; panel = panel->order_next)
 	{
 		for (DrawCommand* command = panel->painter.first_command; command; command = command->next)
 		{
-			v2 clip_pos = command->clip_rect.top_left;
+			v2 clip_pos = command->clip_rect.bottom_left();
+			clip_pos.y = screen_size.y - clip_pos.y;
 			v2 clip_size = command->clip_rect.size();
-			BeginScissorMode((int)clip_pos.x, (int)clip_pos.y, (int)clip_size.x, (int)clip_size.y);
-
-			// Has to be done after the scisor mode
-			rlBegin(RL_TRIANGLES);
+			rlScissor((int)clip_pos.x, (int)clip_pos.y, (int)clip_size.x, (int)clip_size.y);
 
 			// TODO: custom textures
-			rlEnableTexture(context->atlas.texture_id);
-			rlSetTexture(context->atlas.texture_id);
 
-			for (usize i = command->index_start; i < command->index_end; i += 3)
-			{
-				DrawIndex i1 = draw_buffer.index_buffer[i + 0];
-				DrawIndex i2 = draw_buffer.index_buffer[i + 1];
-				DrawIndex i3 = draw_buffer.index_buffer[i + 2];
-
-				f32* vx1 = draw_buffer.vertex_buffer + i1 * VERTEX_SIZE_FLOATS;
-				f32* vx2 = draw_buffer.vertex_buffer + i2 * VERTEX_SIZE_FLOATS;
-				f32* vx3 = draw_buffer.vertex_buffer + i3 * VERTEX_SIZE_FLOATS;
-
-				rlTexCoord2f(vx1[2], vx1[3]);
-				ColorU32 c1; c1.as_float = vx1[4];
-				rlColor4ub(c1.as_arr[0], c1.as_arr[1], c1.as_arr[2], c1.as_arr[3]);
-				rlVertex2f(vx1[0], vx1[1]);
-
-				rlTexCoord2f(vx2[2], vx2[3]);
-				ColorU32 c2; c2.as_float = vx2[4];
-				rlColor4ub(c2.as_arr[0], c2.as_arr[1], c2.as_arr[2], c2.as_arr[3]);
-				rlVertex2f(vx2[0], vx2[1]);
-
-				rlTexCoord2f(vx3[2], vx3[3]);
-				ColorU32 c3; c3.as_float = vx3[4];
-				rlColor4ub(c3.as_arr[0], c3.as_arr[1], c3.as_arr[2], c3.as_arr[3]);
-				rlVertex2f(vx3[0], vx3[1]);
-			}
-
-			rlEnd();
-
-			EndScissorMode();
+			rlDrawVertexArrayElements(command->index_start, command->index_end - command->index_start, nullptr);
 		}
 	}
+
+	rlDisableScissorTest();
 }
 
 }

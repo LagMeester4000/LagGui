@@ -1916,7 +1916,8 @@ Box* _allocate_box(ID id)
 	Box** lookup_new = panel->box_lookup[context->current_frame % 2];
 	Box** lookup_old = panel->box_lookup[(context->current_frame - 1) % 2];
 
-	Box* new_box = context->temp_arena->allocate_one<Box>();
+	// Avoid memset when not needed by doing raw alloc
+	Box* new_box = (Box*)context->temp_arena->allocate_raw(sizeof(Box));
 
 	// Find box from previous frame
 	Box* old_box = nullptr;
@@ -1954,7 +1955,8 @@ Box* _allocate_box(ID id)
 	}
 	else
 	{
-		// All other fields are already null
+		// Set fields to null since allocation can have trash data
+		memset(new_box, 0, sizeof(Box));
 		new_box->id = id;
 		new_box->h_align = -1;
 		new_box->v_align = -1;
@@ -2133,7 +2135,7 @@ static void _draw_box(Painter& painter, Box* box, const Rect* clip_rect)
 
 	Rect rect = {{box->calculated_position + box->padding}, {box->calculated_position + box->calculated_size - box->padding}};
 
-	//debug_rect(rect, "lol", {1, 1, 0, 1});
+	//debug_rect(rect, " ", {0, 1, 0, 1});
 
 	if (box->flags & BoxFlag_AnyDrawFlags && clip_rect->overlap(rect))
 	{
@@ -2368,6 +2370,7 @@ static void _draw_box(Painter& painter, Box* box, const Rect* clip_rect)
 	}
 
 	//debug_rect(rect, "lol", {1, 1, 0, 1});
+	//debug_rect(rect, " ", {0, 1, 0, 1});
 }
 
 static void _draw_boxes(Painter& painter, Box* root, v2 start_pos)

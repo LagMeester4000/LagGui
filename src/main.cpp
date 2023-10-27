@@ -721,6 +721,7 @@ void presentation()
 	}
 #endif
 
+#if 0
 	static int vert_count = 1;
 	if (lgui::begin_window("Painter", v2{200.f, 300.f}))
 	{
@@ -742,10 +743,73 @@ void presentation()
 				lgui::textf("Vertex count (%d)", vert_count);
 			}
 			lgui::separator();
+
 			lgui::draw_hook(lgui::px(150.f, 150.f), [](lgui::Box* box, lgui::Painter& painter, Rect rect)
 			{
 				painter.draw_circle(rect.center(), 15.f, 180.f, {1, 0, 0, 1});
 			});
+		}
+		lgui::end_window();
+	}
+#endif
+
+#if 0
+	static int element_count = 0;
+	if (lgui::begin_window("Layout inc", v2{100, 100}, 0))
+	{
+		LGUI_H_LAYOUT(-1, -1)
+		{
+			if (lgui::button("-").clicked)
+			{
+				element_count -= 1;
+				element_count = LGUI_MAX(element_count, 0);
+			}
+			lgui::spacer(2.f);
+			if (lgui::button("+").clicked)
+			{
+				element_count += 1;
+			}
+			lgui::spacer(2.f);
+			lgui::textf("Element count (%d)", element_count);
+		}
+		lgui::separator();
+
+		lgui::end_window();
+	}
+
+
+	if (lgui::begin_window("My Window", v2{200.f, 200.f}))
+	{
+		LGUI_V_LAYOUT(-1, -1, {lgui::pc(1.f), lgui::fit()})
+		{
+
+			for (int i = 0; i < element_count; ++i)
+			{
+				lgui::push_id(i);
+				lgui::button("Button");
+				lgui::pop_id();
+				lgui::spacer(4.f);
+			}
+
+			{
+				lgui::Box* box = lgui::make_box("cursor", lgui::px(4, 4), 0);
+				box->set_rectangle({1, 0, 0, 1});
+			}
+		}
+		lgui::end_window();
+	}
+#endif
+
+	if (lgui::begin_window("My Window", v2{250.f, 80.f}))
+	{
+		if (lgui::layout_horizontal(-1, -1, {lgui::pc(1.f), lgui::fit()}))
+		{
+			lgui::button("Button 1");
+			lgui::spacer(2.f);
+			lgui::button("Button 2");
+			lgui::spacer(2.f);
+			lgui::button("Button 3");
+			lgui::layout_end();
 		}
 		lgui::end_window();
 	}
