@@ -366,6 +366,10 @@ struct Box {
 	Box* first_child;
 	Box* last_child;
 
+	// Next and child box from previous frame box, used for lookup optimization
+	Box* prev_first_child;
+	Box* prev_next;
+
 	Box* next_unknown_size[2];
 
 	Box* hash_next;
@@ -450,6 +454,10 @@ struct Box {
 	void set_circle(Color color, Color outline_color, f32 outline_size);
 	void set_draw_hook(DrawHook hook);
 	void set_draw_hook(void* ud, DrawHook hook);
+
+	// Animation
+	void update_t_linear(bool hover, bool active, f32 duration = 0.25f);
+	void update_t_towards(bool hover, bool active, f32 rate = 10.f);
 };
 
 struct Panel;
@@ -752,9 +760,12 @@ enum {
 	PanelFlag_NoDockTab = 1 << 13,
 	PanelFlag_DockRoot = 1 << 14, // The root dock that holds other windows
 	PanelFlag_DockReplaceWhenOne = 1 << 15, // Replace this panel when it has one docked child left
+
+	PanelFlag_BeginClosed = 1 << 16,
 };
 
-const usize RETAINED_TABLE_SIZE = 16;
+//const usize RETAINED_TABLE_SIZE = 16;
+const usize RETAINED_TABLE_SIZE = 256;
 //const usize BOX_TABLE_SIZE = 64;
 const usize BOX_TABLE_SIZE = 512;
 const usize PANEL_NAME_SIZE = 16;
@@ -805,6 +816,11 @@ struct Panel {
 
 	// (If docked) the rectangle of the tab for this panel
 	Rect dock_tab_rect;
+
+	bool use_anchor_point;
+	v2 anchor_point_pos;
+	i8 anchor_point_h_align;
+	i8 anchor_point_v_align;
 };
 
 const usize ID_STACK_SIZE = 32;
@@ -831,9 +847,11 @@ struct Context {
 	ID id_stack[ID_STACK_SIZE];
 	u32 id_stack_top;
 	ID prev_id; // ID of previous drawn element
+	ID id_top;
 
 	Panel* panel_stack[PANEL_STACK_SIZE];
 	u32 panel_stack_top;
+	Panel* panel_top;
 
 	// Input
 	Panel* overlap_panel;
@@ -871,6 +889,8 @@ struct Context {
 	// Box
 	Box* box_stack[BOX_STACK_SIZE];
 	u32 box_stack_top;
+	Box* box_top;
+	Box* box_next_expected;
 
 	// Panel lookup
 	// Maps ID to panel
@@ -889,7 +909,7 @@ struct Context {
 
 // Core
 
-Context* init();
+Context* init(usize arena_size_mb = 8);
 void deinit();
 Context* get_context();
 void begin_frame(f32 delta_time);
@@ -947,7 +967,13 @@ Panel* get_panel(ID id);
 Panel* get_current_panel();
 bool begin_panel(const char* name, Rect rect, PanelFlag flags);
 void end_panel();
+// Closes current panel
+void close_panel();
+void open_panel(const char* name);
+void open_panel(ID id);
 void move_panel_to_front(Panel* panel);
+// This will force the panel to be drawn at a given point
+void set_panel_anchor_point(v2 pos, i8 h_align = -1, i8 v_align = -1);
 Painter& get_painter();
 
 bool begin_window(const char* name, Rect rect, PanelFlag flags);
@@ -985,11 +1011,14 @@ void select_element(ID id);
 // Builder code
 
 InputResult button(const char* name);
+InputResult button(const char* name, Size2 size);
 InputResult checkbox(const char* name, bool* value);
 InputResult radio_button(const char* name, int option, int* selected);
-InputResult drag_value(const char* name, f32* value);
+InputResult drag_value(const char* name, Size2 size, f32* value);
+InputResult slider_value(const char* name, Size2 size, f32 min, f32 max, f32* value);
 bool collapse_header(const char* name);
 void text(const char* text, bool static_string = false);
+void text(const char* text, Size2 size, i8 h_align = 0, i8 v_align = 0, bool static_string = false);
 void textf(const char* format, ...);
 //bool input_text(char* buffer, usize buffer_size, bool wrap = false);
 void separator();
@@ -1009,6 +1038,9 @@ bool do_tab(const char* name);
 
 bool begin_tree_node(const char* name);
 void end_tree_node();
+
+bool begin_button_menu(const char* name);
+void end_button_menu();
 
 
 void draw_open_triangle(Painter* painter, v2 pos, f32 size, f32 rotation, Color color);

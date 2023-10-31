@@ -92,9 +92,11 @@ struct NoteArea {
 	Note note_on_press;
 };
 
-void area_test(lgui::Context* context, NoteArea& area)
+void area_test(NoteArea& area)
 {
-	if (lgui::begin_window("Area", Rect::from_pos_size({}, {500, 500}), 0))
+	lgui::Context* context = lgui::get_context();
+
+	//if (lgui::begin_window("Area", Rect::from_pos_size({}, {500, 500}), 0))
 	{
 		lgui::draw_hook(lgui::pc(1.f, 1.f), &area, [](lgui::Box* box, lgui::Painter& painter, Rect rect) 
 		{
@@ -219,14 +221,10 @@ void area_test(lgui::Context* context, NoteArea& area)
 			}
 
 		});
-		lgui::end_window();
+
+		//lgui::end_window();
 	}
 }
-
-#if 0
-extern void ast_init();
-extern void ast_update(lgui::Context* context);
-#endif
 
 struct LayoutTest {
 	int h_align;
@@ -481,22 +479,156 @@ void app_test()
 
 	Rect full_rect = Rect::from_pos_size({}, context->app_window_size);
 	Rect menu_bar = full_rect.cut_top(25.f);
-	Rect left_window = full_rect.cut_left(full_rect.width() * 0.3f);
+	f32 right_window_size = LGUI_MIN(300.f, full_rect.width() * 0.3f);
+	Rect right_window = full_rect.cut_left(right_window_size);
+	Rect playlist_window = full_rect.cut_bottom(300.f);
+	Rect piano_roll_window = full_rect;
+
 	lgui::u32 bg_flags = lgui::PanelFlag_AlwaysResetRect | lgui::PanelFlag_AlwaysBackground | 
 		lgui::PanelFlag_NoTitleBar;
 	
-	if (lgui::begin_window("Menu Bar", menu_bar, bg_flags))
+	if (lgui::begin_panel("Menu Bar", menu_bar, bg_flags))
 	{
-		if (lgui::button("File").clicked)
+		lgui::get_box()->set_rectangle(GREY(0.35f));
+		if (lgui::begin_button_menu("  File  "))
 		{
-
+			lgui::button("Save");
+			lgui::spacer(2.f);
+			lgui::button("Load");
+			lgui::spacer(2.f);
+			lgui::button("Quit");
+			lgui::end_button_menu();
 		}
+		lgui::end_panel();
+	}
+
+	if (lgui::begin_window("Right Window", right_window, bg_flags))
+	{
+		lgui::spacer(2.f);
+		if (lgui::layout_horizontal(0, 0, {lgui::pc(1.f), lgui::fit()}))
+		{
+			lgui::text("My Project");
+			lgui::layout_end();
+		}
+
+		f32 height = lgui::get_style().line_height();
+		lgui::spacer(4.f);
+		if (lgui::layout_horizontal(0, 0, {lgui::pc(1.f), lgui::fit()}))
+		{
+			lgui::button("Play", {lgui::rem(0.5f), lgui::px(height)});
+			lgui::spacer(2.f);
+			lgui::button("|<", {lgui::rem(0.25f), lgui::px(height)});
+			lgui::spacer(2.f);
+			lgui::button(">|", {lgui::rem(0.25f), lgui::px(height)});
+			lgui::layout_end();
+		}
+
+		lgui::spacer(4.f);
+		static f32 main_volume = 50.f;
+		lgui::slider_value("Volume", {lgui::pc(1.f), lgui::px(height)}, 0.f, 100.f, &main_volume);
+
+		lgui::separator();
+		{
+			lgui::text("Instrument: Waveform");
+			lgui::spacer(4.f);
+			static f32 instrument_volume = 50.f;
+			lgui::slider_value("Instrument Volume", {lgui::pc(1.f), lgui::px(height)}, 0.f, 100.f, &instrument_volume);
+			lgui::spacer(4.f);
+			LGUI_H_LAYOUT(-1, 0, {lgui::pc(1.f), lgui::fit()})
+			{
+				lgui::text("Waveform Type: ");
+				lgui::spacer(2.f);
+				// TODO: Replace with dropdown
+				lgui::button("Square", {lgui::rem(1.f), lgui::px(height)});
+			}
+		}
+
+		lgui::separator();
+		{
+			lgui::button("+", {lgui::pc(1.f), lgui::px(height)});
+			lgui::spacer(4.f);
+
+			auto prop = [&](const char* name, f32 min, f32 max, f32* value) {
+				LGUI_H_LAYOUT(-1, 0, {lgui::pc(1.f), lgui::px(height)})
+				{
+					lgui::text(name, {lgui::rem(0.5f), lgui::px(height)}, -1, 0);
+					lgui::spacer(2.f);
+					lgui::slider_value(name, {lgui::rem(0.5f), lgui::px(height)}, min, max, value);
+				}
+			};
+
+			if (lgui::begin_fancy_collapse_header("Reverb"))
+			{
+				static f32 mix = 1.f;
+				prop("Mix", 0.f, 1.f, &mix);
+
+				lgui::spacer(4.f);
+				static f32 room_size = 0.5f;
+				prop("Room Size", 0.f, 1.f, &room_size);
+
+				lgui::end_fancy_collapse_header();
+			}
+			lgui::spacer(4.f);
+			if (lgui::begin_fancy_collapse_header("Delay"))
+			{
+				static f32 mix = 1.f;
+				prop("Mix", 0.f, 1.f, &mix);
+
+				lgui::spacer(4.f);
+				static f32 delay = 0.5f;
+				prop("Delay Time", 0.f, 1.f, &delay);
+
+				lgui::end_fancy_collapse_header();
+			}
+			lgui::spacer(4.f);
+			if (lgui::begin_fancy_collapse_header("Chorus"))
+			{
+				static f32 mix = 1.f;
+				prop("Mix", 0.f, 1.f, &mix);
+
+				lgui::spacer(4.f);
+				static f32 stereo = 0.5f;
+				prop("Stereo", 0.f, 1.f, &stereo);
+
+				lgui::spacer(4.f);
+				static f32 depth = 0.5f;
+				prop("Depth", 0.f, 1.f, &depth);
+
+				lgui::end_fancy_collapse_header();
+			}
+		}
+
 		lgui::end_window();
 	}
 
-	if (lgui::begin_window("Left Window", left_window, bg_flags))
+	if (lgui::begin_window("Playlist", playlist_window, bg_flags))
 	{
-		lgui::text("hello world");
+		lgui::get_box()->set_rectangle(GREY(0.25f));
+		f32 button_size = lgui::get_style().line_height();
+		for (int y = 0; y < 10; ++y)
+		{
+			LGUI_H_LAYOUT(-1, -1)
+			{
+				for (int x = 0; x < 60; ++x)
+				{
+					char buffer[8];
+					snprintf(buffer, 8, "%d", x);
+					lgui::button(buffer, lgui::px(button_size, button_size));
+					lgui::spacer(3.f);
+				}
+			}
+
+			lgui::spacer(3.f);
+		}
+
+		lgui::end_window();
+	}
+
+	if (lgui::begin_window("Piano Roll", piano_roll_window, bg_flags))
+	{
+		lgui::get_box()->set_rectangle(GREY(0.2f));
+		static NoteArea notes = {{}, {1.f, 1.f}};
+		area_test(notes);
 		lgui::end_window();
 	}
 }
@@ -820,7 +952,7 @@ int main()
 {
 	const int screenWidth = 800;
 	const int screenHeight = 800;
-	bool limit_framerate = true;
+	bool limit_framerate = false;
 
 	InitWindow(screenWidth, screenHeight, "LGUI Example");
 
@@ -834,7 +966,7 @@ int main()
 		SetWindowState(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
 	}
 
-	lgui::Context* context = lgui::init();
+	lgui::Context* context = lgui::init(16);
 	context->app_window_size = {(f32)screenWidth, (f32)screenHeight};
 
 	lgui::Font* font = context->atlas.add_font("resources/fonts/montserrat/Montserrat-Regular.ttf", 18);
@@ -885,7 +1017,7 @@ int main()
 		rlDisableBackfaceCulling();
 
 		// Enable for frame by frame
-		//if (IsKeyPressed(KEY_ENTER) || IsKeyDown(KEY_RIGHT_SHIFT))
+		if (IsKeyPressed(KEY_ENTER) || IsKeyDown(KEY_RIGHT_SHIFT))
 		{
 			while (int codepoint = GetCharPressed())
 			{
@@ -901,7 +1033,7 @@ int main()
 
 			layout_test(layout_t);
 			widget_test(widget_t);
-			area_test(context, area);
+			//area_test(area);
 			misc_test();
 			app_test();
 			
@@ -937,7 +1069,7 @@ int main()
 
 		}
 
-		lgui::draw_frame();
+		//lgui::draw_frame();
 		DrawFPS(1, 1);
 		EndDrawing();
 	}

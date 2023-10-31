@@ -39,11 +39,11 @@ static f32 lerp(f32 v1, f32 v2, f32 t)
 	return v1 + (v2 - v1) * t;
 }
 
-Context* init()
+Context* init(usize arena_size_mb)
 {
 	LGUI_ASSERT(g_context == nullptr, "The library has already been initialized");
 
-	usize mem_size = LGUI_MB(8);
+	usize mem_size = LGUI_MB(arena_size_mb);
 	Arena arena = Arena::from_memory(malloc(mem_size), mem_size);
 
 	Context* ret = arena.allocate_one<Context>();
@@ -217,38 +217,29 @@ ID calc_id(const byte* data, usize length)
 {
 	Context* context = get_context();
 
-	ID top = context->id_stack_top > 0 ? context->id_stack[context->id_stack_top - 1] : 123456;
+	ID top = context->id_stack_top > 0 ? context->id_top : 123456;
 	return xcrc32(data, (int)length, top);
 }
 
 ID get_id(const char* string)
 {
-	Context* context = get_context();
-
-	// Find any 
-
 	return calc_id((const byte*)string, strlen(string));
 }
 
 ID get_id(i32 i)
 {
-	Context* context = get_context();
-
 	return calc_id((const byte*)&i, sizeof(i));
 }
 
 ID get_id(void* ptr)
 {
-	Context* context = get_context();
-
 	return calc_id((const byte*)ptr, sizeof(ptr));
 }
 
 ID peek_id()
 {
 	Context* context = get_context();
-	LGUI_ASSERT(context->id_stack_top > 0, "No ID on stack");
-	return context->id_stack[context->id_stack_top - 1];
+	return context->id_top;
 }
 
 static void _push_id(ID id)
@@ -258,6 +249,7 @@ static void _push_id(ID id)
 	LGUI_ASSERT(context->id_stack_top < ID_STACK_SIZE, "Id stack overflow");
 	context->id_stack[context->id_stack_top] = id;
 	++context->id_stack_top;
+	context->id_top = id;
 }
 
 void pop_id()
@@ -266,6 +258,7 @@ void pop_id()
 
 	LGUI_ASSERT(context->id_stack_top > 0, "Can't pop ID because there are no IDs left");
 	--context->id_stack_top;
+	context->id_top = context->id_stack_top > 0 ? context->id_stack[context->id_stack_top - 1] : 0;
 }
 
 void push_id(const char* string)
@@ -922,9 +915,9 @@ Panel* get_panel(ID id)
 {
 	Context* context = get_context();
 
-	for (Panel* panel = context->first_depth_panel; panel; panel = panel->order_next)
+	for (Panel* it = context->panel_map[id % PANEL_MAP_SIZE]; it; it = it->hash_next)
 	{
-		if (panel->id) return panel;
+		if (it->id == id) return it;
 	}
 	return nullptr;
 }
@@ -947,8 +940,9 @@ Panel* get_current_panel()
 {
 	Context* context = get_context();
 
-	LGUI_ASSERT(context->panel_stack_top > 0, "There is no current panel");
-	return context->panel_stack[context->panel_stack_top - 1];
+	//LGUI_ASSERT(context->panel_stack_top > 0, "There is no current panel");
+	//return context->panel_stack[context->panel_stack_top - 1];
+	return context->panel_top;
 }
 
 static Panel* _get_or_create_panel(ID id)
@@ -1125,6 +1119,7 @@ static void push_panel(Panel* panel)
 	LGUI_ASSERT(context->panel_stack_top < PANEL_STACK_SIZE, "Panel stack is full");
 	context->panel_stack[context->panel_stack_top] = panel;
 	++context->panel_stack_top;
+	context->panel_top = panel;
 }
 
 static void pop_panel()
@@ -1134,6 +1129,7 @@ static void pop_panel()
 	// Push on stack
 	LGUI_ASSERT(context->panel_stack_top > 0, "Panel stack is empty");
 	--context->panel_stack_top;
+	context->panel_top = context->panel_stack_top > 0 ? context->panel_stack[context->panel_stack_top - 1] : nullptr;
 }
 
 static bool is_painter_updated(Painter& painter)
@@ -1146,6 +1142,8 @@ static bool is_painter_updated(Painter& painter)
 bool begin_panel(const char* name, Rect rect, PanelFlag flags)
 {
 	Context* context = get_context();
+	static Box null_box{};
+	context->box_next_expected = &null_box;
 
 	Panel* panel = _get_or_create_panel(get_id(name));
 	push_id(panel->id);
@@ -1203,7 +1201,7 @@ bool begin_panel(const char* name, Rect rect, PanelFlag flags)
 	{
 		// First usage
 		panel->rect = rect;
-		panel->open = true;
+		if (!(flags & PanelFlag_BeginClosed)) panel->open = true;
 
 		// Reset box lookup
 		panel->box_lookup[0] = context->temp_arena->allocate_array<Box*>(BOX_TABLE_SIZE).ptr;
@@ -1257,7 +1255,7 @@ bool begin_panel(const char* name, Rect rect, PanelFlag flags)
 	u32 root_flags = BoxFlag_Static | BoxFlag_IsRoot;
 	root_flags |= flags & PanelFlag_NoClipContent ? 0 : BoxFlag_Clip;
 	panel->root_box = push_box("root_panel", {size_x, size_y}, root_flags);
-	
+
 	if (!(flags & PanelFlag_NoBackground))
 	{
 		const Style& style = get_style();
@@ -1314,6 +1312,32 @@ void end_panel()
 		{
 			it->post_calculate_fit(i);
 		}
+	}
+
+	// Anchor
+	if (panel->use_anchor_point)
+	{
+		v2 size = panel->root_box->calculated_size;
+		v2 pos = panel->anchor_point_pos;
+		if (panel->anchor_point_h_align == 0)
+		{
+			pos.x -= size.x / 2.f;
+		}
+		else if (panel->anchor_point_h_align == 1)
+		{
+			pos.x -= size.x;
+		}
+		if (panel->anchor_point_v_align == 0)
+		{
+			pos.y -= size.y / 2.f;
+		}
+		else if (panel->anchor_point_v_align == 1)
+		{
+			pos.y -= size.y;
+		}
+
+		panel->rect.top_left = pos;
+		panel->rect.bottom_right = pos + size;
 	}
 
 	// Draw boxes
@@ -1400,6 +1424,26 @@ void end_window()
 	end_panel();
 }
 
+void close_panel()
+{
+	Panel* p = get_current_panel();
+	p->open = false;
+}
+
+void open_panel(const char* name)
+{
+	open_panel(get_id(name));
+}
+
+void open_panel(ID id)
+{
+	Panel* panel = get_panel(id);
+	if (panel)
+	{
+		panel->open = true;
+	}
+}
+
 void move_panel_to_front(Panel* panel)
 {
 	Context* context = get_context();
@@ -1442,6 +1486,15 @@ void move_panel_to_front(Panel* panel)
 	context->last_depth_panel = panel;
 }
 
+void set_panel_anchor_point(v2 pos, i8 h_align, i8 v_align)
+{
+	Panel* panel = get_current_panel();
+	panel->use_anchor_point = true;
+	panel->anchor_point_pos = pos;
+	panel->anchor_point_h_align = h_align;
+	panel->anchor_point_v_align = v_align;
+}
+
 Painter& get_painter()
 {
 	return get_current_panel()->get_painter();
@@ -1471,16 +1524,46 @@ void RetainedData::update_t_towards(bool hover, bool active, f32 rate)
 	active_t = LGUI_CLAMP(0.f, 1.f, active_t);
 }
 
+void Box::update_t_linear(bool hover, bool active, f32 duration)
+{
+	f32 dt = get_context()->delta_time;
+	f32 hover_dir = hover ? 1.f : -1.f;
+	f32 active_dir = active ? 1.f : -1.f;
+
+	hover_t += hover_dir * dt * (1.f / duration);
+	hover_t = LGUI_CLAMP(0.f, 1.f, hover_t);
+	active_t += active_dir * dt * (1.f / duration);
+	active_t = LGUI_CLAMP(0.f, 1.f, active_t);
+
+}
+
+void Box::update_t_towards(bool hover, bool active, f32 rate)
+{
+	f32 dt = get_context()->delta_time;
+	f32 hover_goal = hover ? 1.f : 0.f;
+	f32 active_goal = active ? 1.f : 0.f;
+
+	hover_t += (hover_goal - hover_t) * dt * rate;
+	hover_t = LGUI_CLAMP(0.f, 1.f, hover_t);
+	active_t += (active_goal - active_t) * dt * rate;
+	active_t = LGUI_CLAMP(0.f, 1.f, active_t);
+}
+
 InputResult handle_element_input(Rect rect, ID id, bool enable_drag, bool ignore_clip)
 {
 	Context* context = get_context();
+	Panel* current_panel = get_current_panel();
+
+	if (context->active_id != id && context->hover_id != id && context->overlap_panel != current_panel)
+	{
+		return {};
+	}
 
 	InputResult ret{};
 
 	v2 mouse = mouse_pos();
 
 	// Only root panels are checked
-	Panel* current_panel = get_current_panel();
 	if (current_panel->is_docked())
 	{
 		current_panel = current_panel->root_dock_panel;
@@ -1716,7 +1799,7 @@ void DrawBuffer::allocate()
 ID box_generate_id()
 {
 	// Just some random number so you don't interfere with other simple ids
-	const i32 layout_starting_id = 472502; 
+	const i32 layout_starting_id = 472502;
 	Box* box = get_box();
 	box->counter += 1;
 	return get_id(layout_starting_id + box->counter);
@@ -1781,7 +1864,7 @@ void Box::end_calculate_size(int index)
 		}
 		else
 		{
-			if (parent) 
+			if (parent)
 				parent->add_static_size(index, index ? (static_size.y + padding.y * 2.f) : (static_size.x + padding.x * 2.f));
 
 			Panel* panel = get_current_panel();
@@ -1871,9 +1954,9 @@ void Box::post_calculate_percent(int index)
 		}
 		else
 		{
-			calc_size = (index ? 
-				(parent->calculated_size.y - parent->padding.y * 2.f) : 
-				(parent->calculated_size.x - parent->padding.x * 2.f)) 
+			calc_size = (index ?
+				(parent->calculated_size.y - parent->padding.y * 2.f) :
+				(parent->calculated_size.x - parent->padding.x * 2.f))
 				* size[index].value;
 		}
 	}
@@ -1885,9 +1968,9 @@ void Box::post_calculate_percent(int index)
 		}
 		else
 		{
-			calc_size = (index ? 
-				(parent->calculated_size.y - parent->static_size.y - parent->padding.y * 2.f) : 
-				(parent->calculated_size.x - parent->static_size.x - parent->padding.x * 2.f)) 
+			calc_size = (index ?
+				(parent->calculated_size.y - parent->static_size.y - parent->padding.y * 2.f) :
+				(parent->calculated_size.x - parent->static_size.x - parent->padding.x * 2.f))
 				* size[index].value;
 			calc_size = LGUI_MAX(calc_size, 0.f);
 		}
@@ -1911,28 +1994,37 @@ Box* _allocate_box(ID id)
 {
 	Context* context = get_context();
 	Panel* panel = get_current_panel();
-	
+
 	LGUI_ASSERT(panel->box_lookup[0] && panel->box_lookup[1], "Box lookup arrays not initialized");
 	Box** lookup_new = panel->box_lookup[context->current_frame % 2];
 	Box** lookup_old = panel->box_lookup[(context->current_frame - 1) % 2];
 
 	// Avoid memset when not needed by doing raw alloc
-	Box* new_box = (Box*)context->temp_arena->allocate_raw(sizeof(Box));
+	//Box* new_box = (Box*)context->temp_arena->allocate_raw(sizeof(Box));
+	Box* new_box = context->temp_arena->allocate_one<Box>();
 
 	// Find box from previous frame
 	Box* old_box = nullptr;
-	for (Box* it = lookup_old[id % BOX_TABLE_SIZE]; it; it = it->hash_next)
-	//for (Box* it = lookup_old[id & (BOX_TABLE_SIZE - 1)]; it; it = it->hash_next)
+	if (context->box_next_expected->id == id)
 	{
-		if (it->id == id)
+		old_box = context->box_next_expected;
+	}
+	else
+	{
+		//for (Box* it = lookup_old[id & (BOX_TABLE_SIZE - 1)]; it; it = it->hash_next)
+		for (Box* it = lookup_old[id % BOX_TABLE_SIZE]; it; it = it->hash_next)
 		{
-			old_box = it;
-			break;
+			if (it->id == id)
+			{
+				old_box = it;
+				break;
+			}
 		}
 	}
 
 	if (old_box)
 	{
+		/*
 		*new_box = *old_box;
 		new_box->next = nullptr;
 		new_box->prev = nullptr;
@@ -1952,11 +2044,23 @@ Box* _allocate_box(ID id)
 		new_box->next_unknown_size[0] = nullptr;
 		new_box->next_unknown_size[1] = nullptr;
 		// Keep calculated position/size so the user can reuse it
+		*/
+
+		new_box->id = id;
+		new_box->calculated_position = old_box->calculated_position;
+		new_box->calculated_size = old_box->calculated_size;
+		new_box->prev_calculated_position = old_box->calculated_position;
+		new_box->prev_used_size = old_box->used_size;
+		new_box->h_align = -1;
+		new_box->v_align = -1;
+
+		new_box->prev_first_child = old_box->first_child;
+		new_box->prev_next = old_box->next;
 	}
 	else
 	{
 		// Set fields to null since allocation can have trash data
-		memset(new_box, 0, sizeof(Box));
+		//memset(new_box, 0, sizeof(Box));
 		new_box->id = id;
 		new_box->h_align = -1;
 		new_box->v_align = -1;
@@ -1974,7 +2078,7 @@ void _init_box(Box* box, Size2 size, u32 flags)
 {
 	box->size[0] = size.x;
 	box->size[1] = size.y;
-	
+
 	box->flags = flags;
 }
 
@@ -1983,7 +2087,7 @@ Box* make_box(ID id, Size2 size, u32 flags)
 	Box* box = _allocate_box(id);
 
 	_init_box(box, size, flags);
-	
+
 	Box* parent = get_box();
 	if (parent)
 	{
@@ -1991,6 +2095,10 @@ Box* make_box(ID id, Size2 size, u32 flags)
 		box->begin();
 		box->end();
 	}
+
+	Context* context = get_context();
+	static Box null_box{};
+	context->box_next_expected = box->prev_next ? box->prev_next : &null_box;
 
 	return box;
 }
@@ -2005,7 +2113,7 @@ void push_box(Box* box)
 	Context* context = get_context();
 
 	push_id_raw(box->id);
-	
+
 	if (context->box_stack_top > 0 && !(box->flags & BoxFlag_IsRoot))
 	{
 		Box* parent = context->box_stack[context->box_stack_top - 1];
@@ -2017,6 +2125,7 @@ void push_box(Box* box)
 	LGUI_ASSERT(context->box_stack_top < BOX_STACK_SIZE, "Box stack out of bounds");
 	context->box_stack[context->box_stack_top] = box;
 	++context->box_stack_top;
+	context->box_top = box;
 }
 
 Box* push_box(ID id, Size2 size, u32 flags)
@@ -2025,6 +2134,10 @@ Box* push_box(ID id, Size2 size, u32 flags)
 	_init_box(box, size, flags);
 
 	push_box(box);
+
+	Context* context = get_context();
+	static Box null_box{};
+	context->box_next_expected = box->prev_first_child ? box->prev_first_child : &null_box;
 
 	return box;
 }
@@ -2041,10 +2154,14 @@ Box* pop_box()
 	LGUI_ASSERT(context->box_stack_top > 0, "Box stack is already empty");
 	Box* pop = context->box_stack[context->box_stack_top - 1];
 	--context->box_stack_top;
-	
+	context->box_top = context->box_stack_top > 0 ? context->box_stack[context->box_stack_top - 1] : nullptr;
+
 	pop->end();
 
 	pop_id();
+
+	static Box null_box{};
+	context->box_next_expected = pop->prev_next ? pop->prev_next : &null_box;
 
 	return pop;
 }
@@ -2052,7 +2169,7 @@ Box* pop_box()
 Box* get_box()
 {
 	Context* context = get_context();
-	return context->box_stack_top > 0 ? context->box_stack[context->box_stack_top - 1] : nullptr;
+	return context->box_top;
 }
 
 Box* layout_horizontal(i8 h_align, i8 v_align, Size2 size, u32 flags)
@@ -2268,10 +2385,10 @@ static void _draw_box(Painter& painter, Box* box, const Rect* clip_rect)
 			f32 scroll_bar_size = (area_size / used_size) * axis_size;
 			f32 scroll_bar_offset = (-box->offset.y / (used_size - area_size)) * (axis_size - scroll_bar_size);
 			Rect scroll_rect = Rect::from_pos_size(
-				{top_right.x - scroll_bar_width, top_right.y + scroll_bar_offset}, 
+				{top_right.x - scroll_bar_width, top_right.y + scroll_bar_offset},
 				{scroll_bar_width, scroll_bar_size}
 			);
-			
+
 			// Scroll bar dragging
 			InputResult input = handle_element_input(scroll_rect, box->id + 1, true);
 			if (input.dragging)
@@ -2332,7 +2449,7 @@ static void _draw_box(Painter& painter, Box* box, const Rect* clip_rect)
 				{bottom_left.x + scroll_bar_offset, bottom_left.y - scroll_bar_height},
 				{scroll_bar_size, scroll_bar_height}
 			);
-			
+
 			// Scroll bar dragging
 			InputResult input = handle_element_input(scroll_rect, box->id + 2, true);
 			if (input.dragging)

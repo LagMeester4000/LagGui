@@ -2,6 +2,7 @@
 #include "lag_gui.hpp"
 #include "raylib.h"
 #include "rlgl.h"
+#include "crc32.hpp"
 #include <math.h>
 
 namespace lgui {
@@ -90,9 +91,9 @@ void Painter::_restart_painter()
 	DrawCommand* new_command = context->temp_arena->allocate_one<DrawCommand>();
 	new_command->clip_rect = get_clip_rect();
 	new_command->vertex_start = context->draw_buffer.vertex_buffer_top;
-	new_command->vertex_end = current_command->vertex_start;
+	new_command->vertex_end = new_command->vertex_start;
 	new_command->index_start = context->draw_buffer.index_buffer_top;
-	new_command->index_end = current_command->index_start;
+	new_command->index_end = new_command->index_start;
 	current_command = new_command;
 }
 

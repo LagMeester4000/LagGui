@@ -24,7 +24,6 @@ static Color lerp_color(Color c1, Color c2, f32 t)
 InputResult button(const char* name)
 {
 	ID id = get_id(name);
-	RetainedData* retained = get_retained_data(id);
 	const Style& style = get_style();
 
 	// Rect
@@ -32,14 +31,38 @@ InputResult button(const char* name)
 	f32 text_width = font->text_width(name, 0);
 	Box* box = make_box(name, px(text_width + 4, font->height), BoxFlag_DrawText | BoxFlag_DrawRectangle);
 	box->font = font;
-	box->text = name;
 	box->text_length = strlen(name);
+	box->text = copy_string(get_context()->temp_arena, name, box->text_length);
 	box->h_align = 0;
 	box->v_align = 0;
 
 	InputResult input = handle_element_input(box->prev_rect(), id);
-	retained->update_t_towards(input.hover, input.down);
-	Color color = lerp_color(lerp_color(style.button_background, style.button_background_hover, retained->hover_t), style.button_background_down, retained->active_t);
+	box->update_t_towards(input.hover, input.down);
+	Color color = lerp_color(lerp_color(style.button_background, style.button_background_hover, box->hover_t), style.button_background_down, box->active_t);
+
+	box->color = color;
+	box->text_color = style.button_text;
+
+	return input;
+}
+
+InputResult button(const char* name, Size2 size)
+{
+	const Style& style = get_style();
+
+	// Rect
+	Font* font = style.default_font;
+	f32 text_width = font->text_width(name, 0);
+	Box* box = make_box(name, size, BoxFlag_DrawText | BoxFlag_DrawRectangle);
+	box->font = font;
+	box->text_length = strlen(name);
+	box->text = copy_string(get_context()->temp_arena, name, box->text_length);
+	box->h_align = 0;
+	box->v_align = 0;
+
+	InputResult input = handle_element_input(box->prev_rect(), box->id);
+	box->update_t_towards(input.hover, input.down);
+	Color color = lerp_color(lerp_color(style.button_background, style.button_background_hover, box->hover_t), style.button_background_down, box->active_t);
 
 	box->color = color;
 	box->text_color = style.button_text;
@@ -133,6 +156,32 @@ void text(const char* text, bool static_string)
 	box->text_color = {1.f, 1.f, 1.f, 1.f};
 }
 
+void text(const char* text, Size2 size, i8 h_align, i8 v_align, bool static_string)
+{
+	const Style& style = get_style();
+
+	// Rect
+	Font* font = style.default_font;
+	f32 text_width = font->text_width(text, 0);
+	Box* box = make_box(box_generate_id(), size, BoxFlag_DrawText);
+	box->font = font;
+
+	usize len = strlen(text);
+	box->text_length = len;
+	if (static_string)
+	{
+		box->text = text;
+	}
+	else
+	{
+		box->text = copy_string(get_context()->temp_arena, text, len);
+	}
+
+	box->h_align = h_align;
+	box->v_align = v_align;
+	box->text_color = {1.f, 1.f, 1.f, 1.f};
+}
+
 void textf(const char* format, ...)
 {
 	va_list args;
@@ -185,6 +234,41 @@ InputResult radio_button(const char* name, int option, int* selected)
 		c.a = retained->active_t;
 		inside->set_circle(c);
 	}
+
+	pop_box();
+
+	return input;
+}
+
+InputResult slider_value(const char* name, Size2 size, f32 min, f32 max, f32* value)
+{
+	ID id = get_id(name);
+	RetainedData* retained = get_retained_data(id);
+	const Style& style = get_style();
+
+	// Rect
+	Box* box = push_box(name, size, BoxFlag_DrawRectangle);
+	box->h_align = -1;
+	box->v_align = -1;
+	box->padding = {3.f, 3.f};
+
+	Rect prev_rect = box->prev_rect();
+	InputResult input = handle_element_input(prev_rect, id, true);
+	if (input.pressed || input.dragging)
+	{
+		v2 mouse = mouse_pos() - (prev_rect.top_left + box->padding);
+		mouse /= prev_rect.size() - box->padding * 2.f;
+		f32 new_value = min + (max - min) * mouse.x;
+		*value = LGUI_CLAMP(min, max, new_value);
+		input.changed = true;
+	}
+
+	Box* inner_box = make_box("in", pc((*value - min) / (max - min), 1.f), 0);
+	inner_box->set_rectangle(style.radio_button_inside);
+
+	retained->update_t_towards(input.hover, input.down);
+	Color color = lerp_color(lerp_color(style.button_background, style.button_background_hover, retained->hover_t), style.button_background_down, retained->active_t);
+	box->color = color;
 
 	pop_box();
 
@@ -388,6 +472,53 @@ void end_tree_node()
 	layout_end();
 	layout_end();
 	pop_id();
+}
+
+bool begin_button_menu(const char* name)
+{
+	ID id = get_id(name);
+	RetainedData* retained = get_retained_data(id);
+	const Style& style = get_style();
+
+	// Rect
+	Font* font = style.default_font;
+	f32 text_width = font->text_width(name, 0);
+	Box* box = make_box(name, {px(text_width + 4), rem(1.f)}, BoxFlag_DrawText | BoxFlag_DrawRectangle);
+	box->font = font;
+	box->text = name;
+	box->text_length = strlen(name);
+	box->h_align = 0;
+	box->v_align = 0;
+
+	InputResult input = handle_element_input(box->prev_rect(), id);
+	retained->update_t_towards(input.hover, input.down);
+	Color color = lerp_color(lerp_color(style.button_background, style.button_background_hover, retained->hover_t), style.button_background_down, retained->active_t);
+
+	box->color = color;
+	box->text_color = style.button_text;
+
+	if (input.clicked)
+	{
+		open_panel(id);
+	}
+
+	bool ret = begin_window(name, v2{1.f, 1.f}, PanelFlag_BeginClosed | PanelFlag_NoTitleBar |
+		PanelFlag_AutoResizeHorizontal | PanelFlag_AutoResizeVertical);
+	if (ret)
+	{
+		set_panel_anchor_point(box->prev_rect().bottom_left());
+		Panel* current_panel = get_current_panel();
+		move_panel_to_front(current_panel);
+		bool mouse_press = mouse_pressed(0) || mouse_pressed(1) || mouse_pressed(2);
+		if (mouse_press && get_context()->overlap_panel != current_panel)
+			close_panel();
+	}
+	return ret;
+}
+
+void end_button_menu()
+{
+	end_window();
 }
 
 /*
