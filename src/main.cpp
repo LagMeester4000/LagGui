@@ -952,19 +952,19 @@ int main()
 {
 	const int screenWidth = 800;
 	const int screenHeight = 800;
-	bool limit_framerate = false;
-
-	InitWindow(screenWidth, screenHeight, "LGUI Example");
+	bool limit_framerate = true;
 
 	if (limit_framerate)
 	{
-		SetWindowState(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
+		SetWindowState(/*FLAG_MSAA_4X_HINT | */FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
 		//SetTargetFPS(60);
 	}
 	else
 	{
-		SetWindowState(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
+		SetWindowState(/*FLAG_MSAA_4X_HINT | */ FLAG_WINDOW_RESIZABLE);
 	}
+
+	InitWindow(screenWidth, screenHeight, "LGUI Example");
 
 	lgui::Context* context = lgui::init(16);
 	context->app_window_size = {(f32)screenWidth, (f32)screenHeight};
@@ -1011,13 +1011,13 @@ int main()
 			ToggleFullscreen();
 		}
 
-		BeginDrawing();
-		ClearBackground(SKYBLUE);
+		//BeginDrawing();
+		////ClearBackground(SKYBLUE);
 
-		rlDisableBackfaceCulling();
+		//rlDisableBackfaceCulling();
 
 		// Enable for frame by frame
-		if (IsKeyPressed(KEY_ENTER) || IsKeyDown(KEY_RIGHT_SHIFT))
+		//if (IsKeyPressed(KEY_ENTER) || IsKeyDown(KEY_RIGHT_SHIFT))
 		{
 			while (int codepoint = GetCharPressed())
 			{
@@ -1069,9 +1069,9 @@ int main()
 
 		}
 
-		//lgui::draw_frame();
-		DrawFPS(1, 1);
-		EndDrawing();
+		lgui::draw_frame();
+		//DrawFPS(1, 1);
+		//EndDrawing();
 	}
 
 	lgui::deinit();

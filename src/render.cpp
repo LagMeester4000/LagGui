@@ -818,6 +818,15 @@ void rl_render()
 {
 	Context* context = get_context();
 
+	if (context->draw_buffer.vertex_buffer_top == 0)
+	{
+		PollInputEvents();
+		WaitTime(0.015f);
+		return;
+	}
+
+	BeginDrawing();
+
 	DrawBuffer& draw_buffer = context->draw_buffer;
 
 	static bool initialized = false;
@@ -917,6 +926,8 @@ void rl_render()
 	}
 
 	rlDisableScissorTest();
+
+	EndDrawing();
 }
 
 }

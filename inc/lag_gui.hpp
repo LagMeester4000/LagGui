@@ -415,6 +415,10 @@ struct Box {
 	DrawHook draw_hook;
 	void* draw_user_data;
 
+	// Animation
+	f32 hover_t;
+	f32 active_t;
+
 	// Styling
 	Color color;
 	Color outline_color;
@@ -423,10 +427,6 @@ struct Box {
 	const char* text;
 	usize text_length;
 	Font* font;
-
-	// Animation
-	f32 hover_t;
-	f32 active_t;
 
 	// Adds the child box to the tree
 	void append_child(Box* box);
@@ -775,6 +775,9 @@ struct Panel {
 	ID id;
 	u32 frame_last_updated;
 	bool open;
+
+	u32 prev_hash;
+	u32 force_render;
 
 	Rect rect;
 

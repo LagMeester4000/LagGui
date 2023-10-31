@@ -33,6 +33,7 @@ static void push_panel(Panel* panel);
 static void pop_panel();
 static void _delete_old_panels();
 static void _draw_boxes(Painter& painter, Box* root, v2 start_pos);
+static u32 _hash_boxes(Box* box);
 
 static f32 lerp(f32 v1, f32 v2, f32 t)
 {
@@ -1204,19 +1205,19 @@ bool begin_panel(const char* name, Rect rect, PanelFlag flags)
 		if (!(flags & PanelFlag_BeginClosed)) panel->open = true;
 
 		// Reset box lookup
-		panel->box_lookup[0] = context->temp_arena->allocate_array<Box*>(BOX_TABLE_SIZE).ptr;
-		panel->box_lookup[1] = context->temp_arena->allocate_array<Box*>(BOX_TABLE_SIZE).ptr;
+		panel->box_lookup[0] = context->arena.allocate_array<Box*>(BOX_TABLE_SIZE).ptr;
+		panel->box_lookup[1] = context->arena.allocate_array<Box*>(BOX_TABLE_SIZE).ptr;
 	}
 	else if (panel->frame_last_updated + 1 < context->current_frame)
 	{
 		// Reset box lookup
-		panel->box_lookup[0] = context->temp_arena->allocate_array<Box*>(BOX_TABLE_SIZE).ptr;
-		panel->box_lookup[1] = context->temp_arena->allocate_array<Box*>(BOX_TABLE_SIZE).ptr;
+		//panel->box_lookup[0] = context->temp_arena->allocate_array<Box*>(BOX_TABLE_SIZE).ptr;
+		//panel->box_lookup[1] = context->temp_arena->allocate_array<Box*>(BOX_TABLE_SIZE).ptr;
 	}
 	else
 	{
 		// Normal new frame
-		panel->box_lookup[context->current_frame % 2] = context->temp_arena->allocate_array<Box*>(BOX_TABLE_SIZE).ptr;
+		//panel->box_lookup[context->current_frame % 2] = context->temp_arena->allocate_array<Box*>(BOX_TABLE_SIZE).ptr;
 	}
 	panel->frame_last_updated = context->current_frame;
 
@@ -1340,8 +1341,23 @@ void end_panel()
 		panel->rect.bottom_right = pos + size;
 	}
 
+	u32 hash = _hash_boxes(panel->root_box);
+	if (hash >= 14328 && hash <= 14434)
+	{
+		printf("hash = %d\n", hash);
+	}
+	if (hash != panel->prev_hash)
+	{
+		panel->prev_hash = hash;
+		panel->force_render = 2;
+	}
+
 	// Draw boxes
-	_draw_boxes(painter, panel->root_box, panel->rect.top_left);
+	if (panel->force_render > 0)
+	{
+		--panel->force_render;
+		_draw_boxes(painter, panel->root_box, panel->rect.top_left);
+	}
 
 	// Store window size if resizable
 	if (panel->flags & PanelFlag_AutoResizeHorizontal)
@@ -1526,9 +1542,9 @@ void RetainedData::update_t_towards(bool hover, bool active, f32 rate)
 
 void Box::update_t_linear(bool hover, bool active, f32 duration)
 {
-	f32 dt = get_context()->delta_time;
-	f32 hover_dir = hover ? 1.f : -1.f;
-	f32 active_dir = active ? 1.f : -1.f;
+	const f32 dt = get_context()->delta_time;
+	const f32 hover_dir = hover ? 1.f : -1.f;
+	const f32 active_dir = active ? 1.f : -1.f;
 
 	hover_t += hover_dir * dt * (1.f / duration);
 	hover_t = LGUI_CLAMP(0.f, 1.f, hover_t);
@@ -1539,14 +1555,12 @@ void Box::update_t_linear(bool hover, bool active, f32 duration)
 
 void Box::update_t_towards(bool hover, bool active, f32 rate)
 {
-	f32 dt = get_context()->delta_time;
-	f32 hover_goal = hover ? 1.f : 0.f;
-	f32 active_goal = active ? 1.f : 0.f;
+	const f32 dt = get_context()->delta_time;
+	const f32 hover_goal = hover ? 1.f : 0.f;
+	const f32 active_goal = active ? 1.f : 0.f;
 
 	hover_t += (hover_goal - hover_t) * dt * rate;
-	hover_t = LGUI_CLAMP(0.f, 1.f, hover_t);
 	active_t += (active_goal - active_t) * dt * rate;
-	active_t = LGUI_CLAMP(0.f, 1.f, active_t);
 }
 
 InputResult handle_element_input(Rect rect, ID id, bool enable_drag, bool ignore_clip)
@@ -1995,13 +2009,14 @@ Box* _allocate_box(ID id)
 	Context* context = get_context();
 	Panel* panel = get_current_panel();
 
-	LGUI_ASSERT(panel->box_lookup[0] && panel->box_lookup[1], "Box lookup arrays not initialized");
-	Box** lookup_new = panel->box_lookup[context->current_frame % 2];
-	Box** lookup_old = panel->box_lookup[(context->current_frame - 1) % 2];
+	//LGUI_ASSERT(panel->box_lookup[0] && panel->box_lookup[1], "Box lookup arrays not initialized");
+	//Box** lookup_new = panel->box_lookup[context->current_frame % 2];
+	//Box** lookup_old = panel->box_lookup[(context->current_frame - 1) % 2];
+	Box** lookup_old = panel->box_lookup[0];
 
 	// Avoid memset when not needed by doing raw alloc
 	//Box* new_box = (Box*)context->temp_arena->allocate_raw(sizeof(Box));
-	Box* new_box = context->temp_arena->allocate_one<Box>();
+	//Box* new_box = context->temp_arena->allocate_one<Box>();
 
 	// Find box from previous frame
 	Box* old_box = nullptr;
@@ -2024,28 +2039,28 @@ Box* _allocate_box(ID id)
 
 	if (old_box)
 	{
-		/*
-		*new_box = *old_box;
-		new_box->next = nullptr;
-		new_box->prev = nullptr;
-		new_box->parent = nullptr;
-		new_box->first_child = nullptr;
-		new_box->last_child = nullptr;
-		new_box->child_count = 0;
-		new_box->known_size_child_count[0] = 0;
-		new_box->known_size_child_count[1] = 0;
-		new_box->prev_used_size = new_box->used_size;
-		new_box->used_size = {};
-		new_box->static_size = {};
-		new_box->prev_calculated_position = new_box->calculated_position;
-		new_box->counter = 0;
-		new_box->is_size_calculated[0] = false;
-		new_box->is_size_calculated[1] = false;
-		new_box->next_unknown_size[0] = nullptr;
-		new_box->next_unknown_size[1] = nullptr;
+		old_box->prev_first_child = old_box->first_child;
+		old_box->prev_next = old_box->next;
+		old_box->next = nullptr;
+		old_box->prev = nullptr;
+		old_box->parent = nullptr;
+		old_box->first_child = nullptr;
+		old_box->last_child = nullptr;
+		old_box->child_count = 0;
+		old_box->known_size_child_count[0] = 0;
+		old_box->known_size_child_count[1] = 0;
+		old_box->prev_used_size = old_box->used_size;
+		old_box->used_size = {};
+		old_box->static_size = {};
+		old_box->prev_calculated_position = old_box->calculated_position;
+		old_box->counter = 0;
+		old_box->is_size_calculated[0] = false;
+		old_box->is_size_calculated[1] = false;
+		old_box->next_unknown_size[0] = nullptr;
+		old_box->next_unknown_size[1] = nullptr;
 		// Keep calculated position/size so the user can reuse it
-		*/
 
+		/*
 		new_box->id = id;
 		new_box->calculated_position = old_box->calculated_position;
 		new_box->calculated_size = old_box->calculated_size;
@@ -2056,22 +2071,27 @@ Box* _allocate_box(ID id)
 
 		new_box->prev_first_child = old_box->first_child;
 		new_box->prev_next = old_box->next;
+		*/
+
+		return old_box;
 	}
 	else
 	{
 		// Set fields to null since allocation can have trash data
 		//memset(new_box, 0, sizeof(Box));
+		Box* new_box = context->arena.allocate_one<Box>();
+
 		new_box->id = id;
 		new_box->h_align = -1;
 		new_box->v_align = -1;
+
+		// Insert box in new frame
+		u32 index = id % BOX_TABLE_SIZE;
+		new_box->hash_next = lookup_old[index];
+		lookup_old[index] = new_box;
+
+		return new_box;
 	}
-
-	// Insert box in new frame
-	u32 index = id % BOX_TABLE_SIZE;
-	new_box->hash_next = lookup_new[index];
-	lookup_new[index] = new_box;
-
-	return new_box;
 }
 
 void _init_box(Box* box, Size2 size, u32 flags)
@@ -2495,6 +2515,46 @@ static void _draw_boxes(Painter& painter, Box* root, v2 start_pos)
 	root->calculated_position = start_pos;
 	Rect clip_rect = painter.get_clip_rect();
 	_draw_box(painter, root, &clip_rect);
+}
+
+union FloatConv {
+	f32 f;
+	u32 u;
+};
+
+// Assumes that all sizes (but not positions) have been calculated
+static u32 _hash_boxes(Box* box)
+{
+	u32 ret = box->id;
+#define EZ_HASH(v) ret = ret ^ v + 1;
+	EZ_HASH(box->flags);
+	EZ_HASH(FloatConv{ box->calculated_size.x }.u);
+	EZ_HASH(FloatConv{ box->calculated_size.y }.u);
+	EZ_HASH(FloatConv{ box->offset.x }.u);
+	EZ_HASH(FloatConv{ box->offset.y }.u);
+	if (box->flags & BoxFlag_AnyDrawFlags)
+	{
+		EZ_HASH(FloatConv{ box->color.r }.u);
+		EZ_HASH(FloatConv{ box->color.g }.u);
+		EZ_HASH(FloatConv{ box->color.b }.u);
+		EZ_HASH(FloatConv{ box->color.a }.u);
+		EZ_HASH(FloatConv{ box->outline_color.r }.u);
+		EZ_HASH(FloatConv{ box->outline_color.g }.u);
+		EZ_HASH(FloatConv{ box->outline_color.b }.u);
+		EZ_HASH(FloatConv{ box->outline_color.a }.u);
+		EZ_HASH(box->text_length); // TODO: Also text itself :(
+		EZ_HASH(reinterpret_cast<u32>(box->font));
+	}
+	EZ_HASH(box->h_align);
+	EZ_HASH(box->v_align);
+
+	for (Box* it = box->first_child; it; it = it->next)
+	{
+		u32 hash = _hash_boxes(it);
+		EZ_HASH(hash);
+	}
+
+	return ret;
 }
 
 void debug_menu()
