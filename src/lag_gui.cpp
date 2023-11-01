@@ -2053,6 +2053,9 @@ Box* _allocate_box(ID id)
 		new_box->prev_used_size = old_box->used_size;
 		new_box->h_align = -1;
 		new_box->v_align = -1;
+		new_box->offset = old_box->offset;
+		new_box->hover_t = old_box->hover_t;
+		new_box->active_t = old_box->active_t;
 
 		new_box->prev_first_child = old_box->first_child;
 		new_box->prev_next = old_box->next;

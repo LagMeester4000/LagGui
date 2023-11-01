@@ -605,11 +605,11 @@ void app_test()
 	{
 		lgui::get_box()->set_rectangle(GREY(0.25f));
 		f32 button_size = lgui::get_style().line_height();
-		for (int y = 0; y < 10; ++y)
+		for (int y = 0; y < 5; ++y)
 		{
 			LGUI_H_LAYOUT(-1, -1)
 			{
-				for (int x = 0; x < 60; ++x)
+				for (int x = 0; x < 10; ++x)
 				{
 					char buffer[8];
 					snprintf(buffer, 8, "%d", x);
@@ -952,7 +952,7 @@ int main()
 {
 	const int screenWidth = 800;
 	const int screenHeight = 800;
-	bool limit_framerate = false;
+	bool limit_framerate = true;
 
 	InitWindow(screenWidth, screenHeight, "LGUI Example");
 
@@ -1017,7 +1017,7 @@ int main()
 		rlDisableBackfaceCulling();
 
 		// Enable for frame by frame
-		if (IsKeyPressed(KEY_ENTER) || IsKeyDown(KEY_RIGHT_SHIFT))
+		//if (IsKeyPressed(KEY_ENTER) || IsKeyDown(KEY_RIGHT_SHIFT))
 		{
 			while (int codepoint = GetCharPressed())
 			{
@@ -1069,7 +1069,7 @@ int main()
 
 		}
 
-		//lgui::draw_frame();
+		lgui::draw_frame();
 		DrawFPS(1, 1);
 		EndDrawing();
 	}
